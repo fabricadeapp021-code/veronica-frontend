@@ -1,0 +1,44 @@
+FROM node:20-bullseye
+
+WORKDIR /app
+
+# Instala dependências primeiro (melhor cache)
+COPY package.json package-lock.json* ./
+RUN npm install --no-audit --no-fund
+
+# Copia o restante (no docker-compose isso será sobrescrito pelo bind mount,
+# mas mantém o Dockerfile funcional mesmo sem volumes)
+COPY . .
+
+EXPOSE 3000
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+# Next.js dev server acessível fora do container
+CMD ["npm", "run", "dev", "--", "--hostname", "0.0.0.0", "--port", "3000"]
+
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Instalar dependências do sistema
+RUN apk add --no-cache python3 make g++ git
+
+# Instalar nodemon globalmente
+RUN npm install -g nodemon
+
+# Copiar arquivos de dependências
+COPY package*.json ./
+
+# Instalar dependências
+RUN npm install
+
+# Copiar o resto dos arquivos
+COPY . .
+
+# Expor a porta
+EXPOSE 3000
+
+# Comando para desenvolvimento
+CMD ["npm", "run", "dev"]
+

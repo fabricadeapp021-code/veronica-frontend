@@ -1,0 +1,16 @@
+{
+  "projects": {
+    "financial": {
+      "type": "library",
+      "root": "libs/financial",
+      "entryFile": "index",
+      "sourceRoot": "libs/financial/src",
+      "compilerOptions": {
+        "tsConfigPath": "libs/financial/tsconfig.lib.json"
+      }
+    }
+  },
+  "compilerOptions": {
+    "webpack": true
+  }
+}
