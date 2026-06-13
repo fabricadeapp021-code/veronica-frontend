@@ -9,7 +9,7 @@ import { useTheme } from '@/context/ThemeProvider';
 import { clearTenantId } from '@/lib/auth/session';
 import ProvisionalBrand from '@/components/ProvisionalBrand';
 
-const DEFAULT_LOGIN_TITLE = 'Entrar no OpenClaw SaaS';
+const DEFAULT_LOGIN_TITLE = 'Entrar no Sanare';
 const DEFAULT_DESCRIPTION = 'Acesse seu painel para controlar tenants, agentes, automações, logs e monitoramento operacional.';
 const DEFAULT_RIGHT_TITLE = 'Operação de agentes com governança';
 const DEFAULT_RIGHT_DESC = 'Centralize autenticação, observabilidade, execuções e controles do Gateway OpenClaw em uma plataforma multi-tenant.';
@@ -228,7 +228,7 @@ const Login = () => {
                                             <Button variant="primary" type="submit" className="btn-uppercase btn-block" disabled={loading}>
                                                 {loading ? 'Entrando…' : 'Login'}
                                             </Button>
-                                            <p className="p-xs mt-2 text-center">Novo no OpenClaw? <Link href="/auth/signup"><u>Criar conta</u></Link></p>
+                                            <p className="p-xs mt-2 text-center">Novo no Sanare? <Link href="/auth/signup"><u>Criar conta</u></Link></p>
                                             <Link href="#" className="d-block extr-link text-center mt-4">
                                                 <span className="feather-icon">
                                                     <ExternalLink />
@@ -244,7 +244,7 @@ const Login = () => {
                                 <Container fluid as="footer" className="footer">
                                     <Row>
                                         <div className="col-xl-8 text-center">
-                                            <p className="footer-text pb-0"><span className="copy-text">OpenClaw SaaS © {new Date().getFullYear()} Todos os direitos reservados.</span> <a href="#" onClick={(e) => e.preventDefault()}>Política de Privacidade</a><span className="footer-link-sep">|</span><a href="#" onClick={(e) => e.preventDefault()}>Termos</a><span className="footer-link-sep">|</span><a href="#" onClick={(e) => e.preventDefault()}>Status do Sistema</a></p>
+                                            <p className="footer-text pb-0"><span className="copy-text">Sanare © {new Date().getFullYear()} Todos os direitos reservados.</span> <a href="#" onClick={(e) => e.preventDefault()}>Política de Privacidade</a><span className="footer-link-sep">|</span><a href="#" onClick={(e) => e.preventDefault()}>Termos</a><span className="footer-link-sep">|</span><a href="#" onClick={(e) => e.preventDefault()}>Status do Sistema</a></p>
                                         </div>
                                     </Row>
                                 </Container>

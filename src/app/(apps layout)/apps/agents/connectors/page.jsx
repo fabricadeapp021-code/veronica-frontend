@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import classNames from 'classnames';
 import AgentsSidebar from '../AgentsSidebar';
-import AgentsDarkStyles from '../AgentsDarkStyles';
 import {
   Alert,
   Badge,
@@ -169,6 +168,17 @@ const PROVIDER_HELP_GUIDE = {
     ],
     note: 'Quanto mais específicos os documentos, melhores serão as respostas do agente.',
   },
+  webhook_inbound: {
+    title: 'Como usar o Webhook Inbound',
+    steps: [
+      { label: 'Clique em Conectar', detail: 'O sistema gera automaticamente uma URL única e um token secreto para este agente.' },
+      { label: 'Copie a URL gerada', detail: 'A URL já contém o token embutido. Cole-a no sistema externo (CRM, formulário, n8n, Make, etc.).' },
+      { label: 'Configure o sistema externo', detail: 'No sistema externo, configure um POST para a URL copiada com o payload em JSON no body.' },
+      { label: 'Vincule ao agente', detail: 'Clique em "Vincular Ao Funcionário" para ativar o agente que vai responder aos eventos.' },
+      { label: 'Teste o fluxo', detail: 'Envie um POST de teste. O agente vai receber o payload como mensagem e agir.' },
+    ],
+    note: 'Mantenha a URL em segredo — ela contém o token de autenticação. Para revogar o acesso, desconecte e reconecte para gerar uma nova URL.',
+  },
 };
 
 const HelpModal = ({ provider, meta, onHide }) => {
@@ -312,13 +322,31 @@ import { apiRequest } from '@/lib/api/client';
 
 const categoryLabels = {
   channel: 'Canal',
-  knowledge: 'Conhecimento',
   crm: 'CRM',
-  helpdesk: 'Helpdesk',
+  marketing: 'Marketing',
+  productivity: 'Produtividade',
   communication: 'Comunicação',
+  docs: 'Documentos',
+  helpdesk: 'Helpdesk',
+  data: 'Dados',
+  tools: 'Ferramentas',
+  knowledge: 'Conhecimento',
   runtime: 'Runtime',
   google: 'Google',
 };
+
+const CATEGORY_ORDER = [
+  'channel',
+  'crm',
+  'marketing',
+  'productivity',
+  'communication',
+  'docs',
+  'helpdesk',
+  'data',
+  'tools',
+  'knowledge',
+];
 
 const statusLabels = {
   connected: 'Conectado',
@@ -345,6 +373,7 @@ const providerMeta = {
   hubspot:          { BrandComponent: Icons.hubspot,        color: '#FF7A59' },
   pipedrive:        { BrandComponent: Icons.pipedrive,      color: '#1A73E8' },
   webhook:          { BrandComponent: Icons.webhook,        color: '#6b7280' },
+  webhook_inbound:  { BrandComponent: Icons.webhook,        color: '#8b5cf6' },
 };
 
 const defaultMeta = { BrandComponent: null, color: '#6b7280' };
@@ -443,8 +472,13 @@ const defaultFormByProvider = {
     credentials: { apiKey: '' },
   },
   webhook: {
-    name: 'Webhook',
-    config: { provider: 'webhook', method: 'POST', url: '' },
+    name: 'Webhook Outbound',
+    config: { provider: 'webhook', method: 'POST', url: '', authType: 'none', authHeader: '' },
+    credentials: { authValue: '', authUser: '' },
+  },
+  webhook_inbound: {
+    name: 'Webhook Inbound',
+    config: { provider: 'webhook_inbound', messageField: '', senderField: '' },
     credentials: {},
   },
 };
@@ -515,6 +549,88 @@ const ProviderFields = ({ providerKey, form, updateForm }) => {
     webhook: [
       cfg('url', 'URL do Webhook', 'https://hooks.n8n.io/...'),
       cfg('method', 'Método HTTP', 'POST'),
+      <Form.Group className="mb-3" key="authType">
+        <Form.Label>Autenticação (opcional)</Form.Label>
+        <Form.Select
+          value={form.config?.authType || 'none'}
+          onChange={(e) => updateForm('config', 'authType', e.target.value)}
+        >
+          <option value="none">Nenhuma</option>
+          <option value="bearer">Bearer Token</option>
+          <option value="apikey">API Key (header)</option>
+          <option value="basic">Basic Auth</option>
+        </Form.Select>
+      </Form.Group>,
+      ...(form.config?.authType && form.config.authType !== 'none' ? [
+        form.config.authType === 'apikey' ? (
+          <Form.Group className="mb-3" key="authHeader">
+            <Form.Label>Nome do Header</Form.Label>
+            <Form.Control
+              type="text"
+              value={form.config?.authHeader || ''}
+              onChange={(e) => updateForm('config', 'authHeader', e.target.value)}
+              placeholder="Ex: X-API-Key"
+            />
+          </Form.Group>
+        ) : null,
+        form.config.authType === 'basic' ? (
+          <Form.Group className="mb-3" key="authUser">
+            <Form.Label>Usuário</Form.Label>
+            <Form.Control
+              type="text"
+              value={form.credentials?.authUser || ''}
+              onChange={(e) => updateForm('credentials', 'authUser', e.target.value)}
+              placeholder="username"
+            />
+          </Form.Group>
+        ) : null,
+        <Form.Group className="mb-0" key="authValue">
+          <Form.Label>
+            {form.config.authType === 'bearer' ? 'Bearer Token' :
+             form.config.authType === 'basic'  ? 'Senha' : 'Valor da chave'}
+          </Form.Label>
+          <Form.Control
+            type="password"
+            value={form.credentials?.authValue || ''}
+            onChange={(e) => updateForm('credentials', 'authValue', e.target.value)}
+            placeholder={form.config.authType === 'bearer' ? 'sk-...' : '••••••••'}
+          />
+        </Form.Group>,
+      ].filter(Boolean) : []),
+    ],
+    webhook_inbound: [
+      form.config?.webhookUrl ? (
+        <Form.Group className="mb-3" key="webhookUrl">
+          <Form.Label className="d-flex align-items-center gap-2">
+            URL do Webhook
+            <span className="badge bg-success" style={{ fontSize: 10, fontWeight: 500 }}>Pronto para uso</span>
+          </Form.Label>
+          <div className="d-flex gap-2">
+            <Form.Control
+              type="text"
+              value={form.config.webhookUrl}
+              readOnly
+              style={{ fontFamily: 'monospace', fontSize: 11 }}
+            />
+            <button
+              type="button"
+              className="btn btn-outline-secondary btn-sm flex-shrink-0"
+              onClick={() => navigator.clipboard?.writeText(form.config.webhookUrl)}
+            >
+              Copiar
+            </button>
+          </div>
+          <div className="text-muted mt-1" style={{ fontSize: 11 }}>
+            Cole essa URL no sistema externo. O token já está embutido — mantenha em segredo.
+          </div>
+        </Form.Group>
+      ) : (
+        <div key="placeholder" className="text-muted mb-3" style={{ fontSize: 13 }}>
+          Clique em <strong>Conectar</strong> para gerar sua URL e token secreto automaticamente.
+        </div>
+      ),
+      cfg('messageField', 'Campo da mensagem (opcional)', 'Ex: message ou data.text'),
+      cfg('senderField', 'Campo do remetente (opcional)', 'Ex: phone ou userId'),
     ],
     openclaw_gateway: [cfg('healthPath', 'Health path', '/openclaw/gateway/health')],
   };
@@ -647,8 +763,11 @@ const AgentConnectorsPage = () => {
   const availableCategories = useMemo(() => {
     const cats = new Set(providers.filter((p) => !isGoogle(p.key)).map((p) => p.category));
     const hasGoogle = providers.some((p) => isGoogle(p.key));
-    const order = ['channel', 'communication', 'crm', 'knowledge', 'helpdesk', 'runtime'];
-    return ['all', ...order.filter((c) => cats.has(c)), ...(hasGoogle ? ['google'] : [])];
+    return [
+      'all',
+      ...CATEGORY_ORDER.filter((c) => cats.has(c)),
+      ...(hasGoogle ? ['google'] : []),
+    ];
   }, [providers]);
 
   const filteredProviders = useMemo(() => {
@@ -920,11 +1039,11 @@ const AgentConnectorsPage = () => {
   if (loading) {
     return (
       <div className="hk-pg-body py-0">
-        <AgentsDarkStyles />
-      <div className={classNames('integrationsapp-wrap agents-page-dark')}>
+        
+      <div className={classNames('fmapp-wrap')}>
           <AgentsSidebar />
-          <div className="integrationsapp-content">
-            <div className="integrationsapp-detail-wrap">
+          <div className="fmapp-content">
+            <div className="fmapp-detail-wrap">
               <div className="py-5 text-center">
                 <Spinner animation="border" variant="primary" />
                 <p className="mt-3 mb-0">Carregando conectores...</p>
@@ -942,15 +1061,15 @@ const AgentConnectorsPage = () => {
 
   return (
     <div className="hk-pg-body py-0">
-      <AgentsDarkStyles />
+      
       <div
-        className={classNames('integrationsapp-wrap agents-page-dark', {
-          'integrationsapp-sidebar-toggle': !showSidebar,
+        className={classNames('fmapp-wrap', {
+          'fmapp-sidebar-toggle': !showSidebar,
         })}
       >
         <AgentsSidebar />
-        <div className="integrationsapp-content">
-          <div className="integrationsapp-detail-wrap">
+        <div className="fmapp-content">
+          <div className="fmapp-detail-wrap">
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '1.5rem' }}>
         {/* Header */}
         <div className="d-flex align-items-center justify-content-between gap-3 mb-4">
@@ -964,9 +1083,9 @@ const AgentConnectorsPage = () => {
               <ArrowLeft size={20} />
             </Button>
             <div className="ms-3">
-              <h4 className="mb-1">Conectores</h4>
+              <h4 className="mb-1">Integrações</h4>
               <p className="text-muted mb-0">
-                Conecte ferramentas e sistemas aos seus funcionários IA.
+                Conecte plataformas e ferramentas aos seus funcionários IA.
               </p>
             </div>
           </div>
@@ -1051,26 +1170,30 @@ const AgentConnectorsPage = () => {
                   const meta = providerMeta[provider.key] || defaultMeta;
                   const connected = connectedProviderKeys.has(provider.key);
                   const linked = linkedProviderKeys.has(provider.key);
+                  const isComingSoon = provider.status === 'coming_soon';
                   return (
                     <Col md={6} lg={4} key={provider.key}>
                       <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => openProviderModal(provider)}
-                        onKeyDown={(e) => e.key === 'Enter' && openProviderModal(provider)}
+                        role={isComingSoon ? undefined : 'button'}
+                        tabIndex={isComingSoon ? undefined : 0}
+                        onClick={() => !isComingSoon && openProviderModal(provider)}
+                        onKeyDown={(e) => !isComingSoon && e.key === 'Enter' && openProviderModal(provider)}
                         className="rounded-3 border p-3 h-100 d-flex flex-column gap-2"
                         style={{
-                          cursor: 'pointer',
+                          cursor: isComingSoon ? 'default' : 'pointer',
                           borderColor: 'var(--bs-border-color)',
-                          background: 'var(--bs-card-bg)',
+                          background: isComingSoon ? 'var(--bs-tertiary-bg)' : 'var(--bs-card-bg)',
+                          opacity: isComingSoon ? 0.7 : 1,
                           transition: 'border-color 0.15s, box-shadow 0.15s',
                           outline: 'none',
                         }}
                         onMouseEnter={(e) => {
+                          if (isComingSoon) return;
                           e.currentTarget.style.borderColor = '#0d6efd';
                           e.currentTarget.style.boxShadow = '0 0 0 3px rgba(13,110,253,0.12)';
                         }}
                         onMouseLeave={(e) => {
+                          if (isComingSoon) return;
                           e.currentTarget.style.borderColor = 'var(--bs-border-color)';
                           e.currentTarget.style.boxShadow = 'none';
                         }}
@@ -1089,17 +1212,31 @@ const AgentConnectorsPage = () => {
                             >
                               {provider.name}
                             </span>
-                            <Badge
-                              style={{
-                                fontSize: 10,
-                                background: 'var(--bs-secondary-bg)',
-                                color: 'var(--bs-secondary-color)',
-                              }}
-                            >
-                              {categoryLabels[provider.category] || provider.category}
-                            </Badge>
+                            <div className="d-flex align-items-center gap-1 flex-wrap">
+                              <Badge
+                                style={{
+                                  fontSize: 10,
+                                  background: 'var(--bs-secondary-bg)',
+                                  color: 'var(--bs-secondary-color)',
+                                }}
+                              >
+                                {categoryLabels[provider.category] || provider.category}
+                              </Badge>
+                              {isComingSoon && (
+                                <Badge
+                                  style={{
+                                    fontSize: 10,
+                                    background: 'rgba(234,179,8,0.15)',
+                                    color: '#a16207',
+                                    border: '1px solid rgba(234,179,8,0.3)',
+                                  }}
+                                >
+                                  Em breve
+                                </Badge>
+                              )}
+                            </div>
                           </div>
-                          {PROVIDER_HELP_GUIDE[provider.key] && (
+                          {!isComingSoon && PROVIDER_HELP_GUIDE[provider.key] && (
                             <button
                               type="button"
                               title="Como conectar"
@@ -1131,23 +1268,27 @@ const AgentConnectorsPage = () => {
                           className="pt-2 d-flex align-items-center gap-1"
                           style={{ borderTop: '1px solid var(--bs-border-color-translucent)' }}
                         >
-                          {connected && linked && selectedAgentId ? (
+                          {isComingSoon ? (
+                            <small className="text-muted" style={{ fontSize: 11 }}>
+                              Disponível em breve
+                            </small>
+                          ) : connected && linked && selectedAgentId ? (
                             <>
                               <CheckCircle size={12} color="#198754" />
                               <small className="text-success" style={{ fontSize: 11 }}>
-                                Conectado · Vinculado ao funcionário
+                                Ativo neste agente
                               </small>
                             </>
                           ) : connected ? (
                             <>
                               <CheckCircle size={12} color="#198754" />
                               <small className="text-muted" style={{ fontSize: 11 }}>
-                                Conectado — clique para vincular ao funcionário
+                                Credencial disponível — clique para ativar neste agente
                               </small>
                             </>
                           ) : (
                             <small className="text-muted" style={{ fontSize: 11 }}>
-                              Não configurado — clique para configurar
+                              Não configurado — clique para conectar
                             </small>
                           )}
                         </div>

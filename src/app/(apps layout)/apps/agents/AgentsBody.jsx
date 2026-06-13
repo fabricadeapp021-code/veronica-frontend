@@ -1,25 +1,32 @@
 'use client';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
-import { Alert, Badge, Button, Card, Col, Form, InputGroup, Modal, Row, Spinner } from 'react-bootstrap';
+import { Alert, Badge, Button, Card, Col, Dropdown, Form, InputGroup, Modal, Row, Spinner } from 'react-bootstrap';
 import SimpleBar from 'simplebar-react';
 import {
   BookOpen,
   Briefcase,
+  Edit3,
+  Eye,
   Image as ImageIcon,
   Link as LinkIcon,
   Lock,
   MessageSquare,
-  Edit3,
+  MoreVertical,
   PauseCircle,
   Phone,
   PlayCircle,
+  Plus,
   RefreshCw,
+  Search,
   Send,
   Shield,
   Trash2,
+  UserPlus,
+  Users,
   UserX,
   X,
+  Zap,
 } from 'react-feather';
 import { apiRequest, fetchStream } from '@/lib/api/client';
 import { getAccessToken } from '@/lib/auth/session';
@@ -246,19 +253,83 @@ const AgentKnowledgeModal = ({ agent, onClose }) => {
 const AgentPlaygroundPanel = ({ agent, onClose }) => {
   const { isDark } = useColorMode();
   const [activeTab, setActiveTab] = useState('chat');
-  const [messages, setMessages] = useState([]);
+
+  // ── Multi-session state ──────────────────────────────────────────────
+  const pgKey = `pg_sessions_${agent._id}`;
+  const pgActiveKey = `pg_active_${agent._id}`;
+
+  const [sessions, setSessions] = useState(() => {
+    try {
+      const saved = localStorage.getItem(pgKey);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          // Restaura metadados; mensagens não são salvas (podem ser grandes)
+          return parsed.map(s => ({ ...s, messages: [] }));
+        }
+      }
+    } catch { /* ignore */ }
+    const id = `pg-${Date.now()}`;
+    return [{ id, label: 'Sessão 1', sessionKey: id, messages: [] }];
+  });
+
+  const [activeSessionId, setActiveSessionId] = useState(() => {
+    try {
+      const saved = localStorage.getItem(pgActiveKey);
+      if (saved) return saved;
+    } catch { /* ignore */ }
+    return sessions[0].id;
+  });
+
+  // Persiste metadados das sessões (sem mensagens) sempre que mudam
+  useEffect(() => {
+    try {
+      const meta = sessions.map(({ id, label, sessionKey }) => ({ id, label, sessionKey }));
+      localStorage.setItem(pgKey, JSON.stringify(meta));
+    } catch { /* ignore */ }
+  }, [sessions, pgKey]);
+
+  useEffect(() => {
+    try { localStorage.setItem(pgActiveKey, activeSessionId); } catch { /* ignore */ }
+  }, [activeSessionId, pgActiveKey]);
+
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
-  const [pendingImage, setPendingImage] = useState(null); // { previewUrl, file }
+  const [pendingImage, setPendingImage] = useState(null);
   const [uploadingImage, setUploadingImage] = useState(false);
-  const [sessionKey, setSessionKey] = useState(() => `pg-${Date.now()}`);
   const bottomRef = useRef(null);
   const imageInputRef = useRef(null);
 
-  const clearChat = () => {
-    setMessages([]);
-    setSessionKey(`pg-${Date.now()}`);
+  const activeSession = sessions.find(s => s.id === activeSessionId) ?? sessions[0];
+  const messages = activeSession.messages;
+
+  const patchSession = (sessionId, patch) =>
+    setSessions(prev => prev.map(s => s.id === sessionId ? { ...s, ...patch } : s));
+
+  const addSession = () => {
+    const id = `pg-${Date.now()}`;
+    const num = sessions.length + 1;
+    setSessions(prev => [...prev, { id, label: `Sessão ${num}`, sessionKey: id, messages: [] }]);
+    setActiveSessionId(id);
     setInput('');
+    if (pendingImage?.previewUrl) URL.revokeObjectURL(pendingImage.previewUrl);
+    setPendingImage(null);
+  };
+
+  const removeSession = (sessionId) => {
+    if (sessions.length === 1) return;
+    setSessions(prev => {
+      const next = prev.filter(s => s.id !== sessionId);
+      if (activeSessionId === sessionId) setActiveSessionId(next[next.length - 1].id);
+      return next;
+    });
+  };
+
+  const clearChat = () => {
+    const newKey = `pg-${Date.now()}`;
+    patchSession(activeSessionId, { messages: [], sessionKey: newKey });
+    setInput('');
+    if (pendingImage?.previewUrl) URL.revokeObjectURL(pendingImage.previewUrl);
     setPendingImage(null);
   };
 
@@ -300,14 +371,19 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
   };
 
   const send = async () => {
+    const sid = activeSessionId;
+    const capturedSessionKey = sessions.find(s => s.id === sid)?.sessionKey ?? '';
     const text = input.trim();
     if (!text || sending) return;
 
-    setMessages((prev) => [
-      ...prev,
-      { role: 'user', content: text, ts: Date.now(), imagePreview: pendingImage?.previewUrl },
-      { role: 'assistant', content: '', ts: Date.now() + 1, loading: true },
-    ]);
+    setSessions(prev => prev.map(s => s.id === sid ? {
+      ...s,
+      messages: [
+        ...s.messages,
+        { role: 'user', content: text, ts: Date.now(), imagePreview: pendingImage?.previewUrl },
+        { role: 'assistant', content: '', ts: Date.now() + 1, loading: true },
+      ],
+    } : s));
     setInput('');
     setSending(true);
 
@@ -339,7 +415,7 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
 
     try {
       const body = { message: text };
-      if (sessionKey) body.sessionId = sessionKey;
+      if (capturedSessionKey) body.sessionId = capturedSessionKey;
       if (attachments.length) body.attachments = attachments;
 
       const streamRes = await fetchStream(`/agents/${agent.id}/chat-stream`, { body });
@@ -360,23 +436,24 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
           try {
             const event = JSON.parse(line.slice(6));
             if (event.type === 'complete') {
-              if (event.sessionKey) setSessionKey(event.sessionKey);
-              setMessages((prev) => {
-                const copy = [...prev];
-                copy[copy.length - 1] = { role: 'assistant', content: event.content, ts: Date.now() };
-                return copy;
-              });
+              setSessions(prev => prev.map(s => {
+                if (s.id !== sid) return s;
+                const msgs = [...s.messages];
+                msgs[msgs.length - 1] = { role: 'assistant', content: event.content, ts: Date.now() };
+                return { ...s, sessionKey: event.sessionKey || s.sessionKey, messages: msgs };
+              }));
             } else if (event.type === 'error') {
-              setMessages((prev) => {
-                const copy = [...prev];
-                copy[copy.length - 1] = {
+              setSessions(prev => prev.map(s => {
+                if (s.id !== sid) return s;
+                const msgs = [...s.messages];
+                msgs[msgs.length - 1] = {
                   role: 'assistant',
                   content: `Erro: ${event.error || 'Nao foi possivel obter resposta.'}`,
                   ts: Date.now(),
                   error: true,
                 };
-                return copy;
-              });
+                return { ...s, messages: msgs };
+              }));
             }
           } catch {
             /* linha SSE inválida — ignora */
@@ -384,16 +461,17 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
         }
       }
     } catch (err) {
-      setMessages((prev) => {
-        const copy = [...prev];
-        copy[copy.length - 1] = {
+      setSessions(prev => prev.map(s => {
+        if (s.id !== sid) return s;
+        const msgs = [...s.messages];
+        msgs[msgs.length - 1] = {
           role: 'assistant',
           content: `Erro: ${err?.message || 'Nao foi possivel obter resposta.'}`,
           ts: Date.now(),
           error: true,
         };
-        return copy;
-      });
+        return { ...s, messages: msgs };
+      }));
     } finally {
       setSending(false);
     }
@@ -493,7 +571,7 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
           </Button>
         </div>
 
-        {/* Skills bar */}
+        {/* Autonomy badge */}
         <div
           style={{
             padding: '0.5rem 1.25rem',
@@ -503,11 +581,6 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
             flexWrap: 'wrap',
           }}
         >
-          {(agent.skills || []).slice(0, 5).map((s) => (
-            <Badge key={s} bg="light" text="dark" style={{ fontWeight: 400, fontSize: '0.76rem' }}>
-              {s.replaceAll('_', ' ')}
-            </Badge>
-          ))}
           <Badge bg="light" text="dark" style={{ fontWeight: 400, fontSize: '0.76rem' }}>
             {autonomyLabels[agent.autonomyLevel] || agent.autonomyLevel}
           </Badge>
@@ -538,6 +611,60 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
           <KnowledgeTab agent={agent} colors={colors} isDark={isDark} />
         ) : (
           <>
+            {/* Session tabs */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '0.3rem',
+              padding: '0.4rem 1rem', borderBottom: `1px solid ${colors.border}`,
+              overflowX: 'auto', background: colors.panelBg, scrollbarWidth: 'none',
+            }}>
+              {sessions.map(sess => {
+                const isActive = sess.id === activeSessionId;
+                return (
+                  <div key={sess.id} style={{
+                    display: 'flex', alignItems: 'center', gap: '0.2rem',
+                    padding: '0.18rem 0.5rem 0.18rem 0.65rem', borderRadius: '6px', flexShrink: 0,
+                    background: isActive
+                      ? (isDark ? 'rgba(147,187,252,0.15)' : 'rgba(26,86,219,0.1)')
+                      : 'transparent',
+                    border: `1px solid ${isActive
+                      ? (isDark ? 'rgba(147,187,252,0.35)' : 'rgba(26,86,219,0.25)')
+                      : colors.border}`,
+                    color: isActive ? colors.tabActiveText : colors.textMuted,
+                    cursor: 'pointer', transition: 'all 0.15s',
+                  }}>
+                    <span
+                      onClick={() => { setActiveSessionId(sess.id); setInput(''); }}
+                      style={{ fontSize: '0.775rem', fontWeight: isActive ? 600 : 400, whiteSpace: 'nowrap', userSelect: 'none' }}
+                    >
+                      {sess.label}
+                    </span>
+                    {sessions.length > 1 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); removeSession(sess.id); }}
+                        style={{
+                          background: 'none', border: 'none', padding: '0 1px', cursor: 'pointer',
+                          color: 'inherit', opacity: 0.55, display: 'flex', alignItems: 'center', lineHeight: 1,
+                        }}
+                      >
+                        <X size={10} />
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+              <button
+                onClick={addSession}
+                title="Nova sessão"
+                style={{
+                  background: 'none', border: `1px dashed ${colors.border}`, borderRadius: '6px',
+                  padding: '0.18rem 0.45rem', cursor: 'pointer', color: colors.textMuted,
+                  flexShrink: 0, display: 'flex', alignItems: 'center', transition: 'all 0.15s',
+                }}
+              >
+                <Plus size={12} />
+              </button>
+            </div>
+
             {/* Messages */}
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '1rem 1.25rem', background: colors.panelBg }}>
               {messages.length === 0 ? (
@@ -706,7 +833,7 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
             </div>
 
             <div className="text-center pb-2" style={{ fontSize: '0.76rem', color: colors.footerText, background: colors.panelBg }}>
-              Enter para enviar · Shift+Enter para nova linha · historico nao e salvo
+              Enter para enviar · Shift+Enter para nova linha · sessoes nao sao salvas
             </div>
           </>
         )}
@@ -716,6 +843,7 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
             0%, 60%, 100% { transform: translateY(0); opacity: 0.6; }
             30% { transform: translateY(-6px); opacity: 1; }
           }
+          .session-tabs-bar::-webkit-scrollbar { display: none; }
         `}</style>
       </div>
     </>
@@ -908,11 +1036,217 @@ const AgentAccessModal = ({ agent, onClose }) => {
   );
 };
 
+/* ─── Skills Modal ─── */
+const CATEGORY_LABELS = {
+  communication: 'Comunicação',
+  productivity:  'Produtividade',
+  development:   'Desenvolvimento',
+  ai:            'Inteligência Artificial',
+  media:         'Mídia',
+  utility:       'Utilitários',
+  home:          'Casa Inteligente',
+};
+
+const SKILL_STATUS_META = {
+  ready:         { label: 'Disponível',      color: '#10b981', bg: 'rgba(16,185,129,0.1)'  },
+  needs_config:  { label: 'Precisa de config', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)' },
+  needs_binary:  { label: 'Não instalado',   color: '#6b7280', bg: 'rgba(107,114,128,0.1)' },
+  needs_canvas:  { label: 'Precisa de canvas', color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)' },
+};
+
+const AgentSkillsModal = ({ agent, onClose }) => {
+  const [catalog, setCatalog]     = useState([]);
+  const [active, setActive]       = useState({});
+  const [loading, setLoading]     = useState(true);
+  const [toggling, setToggling]   = useState({});
+  const [filter, setFilter]       = useState('');
+  const [showAll, setShowAll]     = useState(false);
+  const [err, setErr]             = useState('');
+
+  const load = useCallback(async () => {
+    try {
+      setLoading(true);
+      setErr('');
+      const [catalogRes, agentRes] = await Promise.all([
+        apiRequest('/skills/catalog'),
+        apiRequest(`/agents/${agent.id}/skills`),
+      ]);
+      setCatalog(catalogRes?.skills || []);
+      const activeMap = {};
+      for (const item of agentRes?.skills || []) {
+        if (item.enabled) activeMap[item.skill.key] = true;
+      }
+      setActive(activeMap);
+    } catch (e) {
+      setErr(e?.message || 'Erro ao carregar habilidades.');
+    } finally {
+      setLoading(false);
+    }
+  }, [agent.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const toggle = async (skill, currentlyEnabled) => {
+    if (!currentlyEnabled && skill.status !== 'ready' && skill.status !== 'needs_config') return;
+    setToggling((prev) => ({ ...prev, [skill.key]: true }));
+    setErr('');
+    try {
+      if (currentlyEnabled) {
+        await apiRequest(`/agents/${agent.id}/skills/${skill.key}`, { method: 'DELETE' });
+        setActive((prev) => { const next = { ...prev }; delete next[skill.key]; return next; });
+      } else {
+        await apiRequest(`/agents/${agent.id}/skills/${skill.key}`, { method: 'POST', body: {} });
+        setActive((prev) => ({ ...prev, [skill.key]: true }));
+      }
+    } catch (e) {
+      setErr(e?.message || 'Erro ao atualizar habilidade.');
+    } finally {
+      setToggling((prev) => { const next = { ...prev }; delete next[skill.key]; return next; });
+    }
+  };
+
+  const term = filter.trim().toLowerCase();
+  const visibleCatalog = showAll ? catalog : catalog.filter((s) => s.status === 'ready' || s.status === 'needs_config' || !!active[s.key]);
+  const filtered = visibleCatalog.filter((s) =>
+    !term || s.name.toLowerCase().includes(term) || s.key.includes(term) || s.description.toLowerCase().includes(term)
+  );
+  const grouped = filtered.reduce((acc, s) => {
+    (acc[s.category] = acc[s.category] || []).push(s);
+    return acc;
+  }, {});
+
+  const readyCount = catalog.filter((s) => s.status === 'ready').length;
+  const configCount = catalog.filter((s) => s.status === 'needs_config').length;
+
+  return (
+    <Modal show onHide={onClose} centered size="lg" scrollable>
+      <Modal.Header closeButton className="border-bottom">
+        <Modal.Title className="fs-6 fw-bold d-flex align-items-center gap-2">
+          <Zap size={16} className="text-warning" />
+          Habilidades OpenClaw — {agent.name}
+        </Modal.Title>
+      </Modal.Header>
+      <Modal.Body style={{ padding: '1rem 1.25rem' }}>
+        {err && (
+          <Alert variant="danger" dismissible onClose={() => setErr('')} className="py-2 small mb-3">
+            {err}
+          </Alert>
+        )}
+
+        {/* Legenda de status */}
+        <div className="d-flex gap-3 mb-3 flex-wrap">
+          {Object.entries(SKILL_STATUS_META).map(([key, meta]) => (
+            <span key={key} style={{ fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: meta.color, display: 'inline-block' }} />
+              {meta.label}
+            </span>
+          ))}
+        </div>
+
+        <div className="d-flex gap-2 mb-3 align-items-center">
+          <Form.Control
+            size="sm"
+            placeholder="Buscar habilidade..."
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            style={{ flex: 1 }}
+          />
+          <Button
+            variant={showAll ? 'secondary' : 'outline-secondary'}
+            size="sm"
+            onClick={() => setShowAll((v) => !v)}
+            style={{ whiteSpace: 'nowrap', fontSize: '0.78rem' }}
+          >
+            {showAll ? `Só disponíveis (${readyCount + configCount})` : `Ver todas (${catalog.length})`}
+          </Button>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-5"><Spinner animation="border" size="sm" /></div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-4 text-muted small">Nenhuma habilidade encontrada.</div>
+        ) : (
+          Object.entries(grouped).map(([category, skills]) => (
+            <div key={category} className="mb-4">
+              <p className="fw-semibold text-muted small text-uppercase mb-2" style={{ letterSpacing: '0.06em' }}>
+                {CATEGORY_LABELS[category] || category}
+              </p>
+              <div className="d-flex flex-column gap-2">
+                {skills.map((skill) => {
+                  const enabled    = !!active[skill.key];
+                  const busy       = !!toggling[skill.key];
+                  const statusMeta = SKILL_STATUS_META[skill.status] || SKILL_STATUS_META.needs_binary;
+                  const canToggle  = skill.status === 'ready' || skill.status === 'needs_config' || enabled;
+                  return (
+                    <div
+                      key={skill.key}
+                      className="d-flex align-items-center justify-content-between px-3 py-2 rounded border"
+                      style={{
+                        opacity: busy ? 0.7 : 1,
+                        borderLeft: `3px solid ${statusMeta.color}`,
+                        background: enabled ? statusMeta.bg : undefined,
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div className="d-flex align-items-center gap-2 flex-wrap">
+                          <span style={{ fontSize: '1rem' }}>{skill.icon}</span>
+                          <span className="fw-semibold small">{skill.name}</span>
+                          <span style={{
+                            fontSize: '0.68rem', fontWeight: 600, borderRadius: '4px',
+                            padding: '1px 6px', background: statusMeta.bg, color: statusMeta.color,
+                          }}>
+                            {statusMeta.label}
+                          </span>
+                        </div>
+                        <div className="text-muted" style={{ fontSize: '0.78rem', marginTop: '0.15rem' }}>
+                          {skill.description}
+                        </div>
+                        {!canToggle && skill.requires && (
+                          <div style={{ fontSize: '0.72rem', color: '#9ca3af', marginTop: '0.1rem' }}>
+                            ⚠️ {skill.requires}
+                          </div>
+                        )}
+                      </div>
+                      <Button
+                        variant={enabled ? 'success' : canToggle ? 'outline-secondary' : 'light'}
+                        size="sm"
+                        className="ms-3 flex-shrink-0"
+                        disabled={busy || !canToggle}
+                        onClick={() => toggle(skill, enabled)}
+                        style={{ minWidth: '80px', fontSize: '0.78rem' }}
+                        title={!canToggle ? skill.requires : undefined}
+                      >
+                        {busy ? (
+                          <Spinner animation="border" size="sm" />
+                        ) : enabled ? (
+                          'Ativo'
+                        ) : canToggle ? (
+                          'Ativar'
+                        ) : (
+                          'Indisponível'
+                        )}
+                      </Button>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))
+        )}
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="secondary" size="sm" onClick={onClose}>Fechar</Button>
+      </Modal.Footer>
+    </Modal>
+  );
+};
+
 /* ─── Main Body ─── */
-const AgentsBody = ({ searchValue }) => {
+const AgentsBody = () => {
   const [agents, setAgents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
   const [playgroundAgent, setPlaygroundAgent] = useState(null);
   const [accessAgent, setAccessAgent] = useState(null);
   const [knowledgeAgent, setKnowledgeAgent] = useState(null);
@@ -944,25 +1278,29 @@ const AgentsBody = ({ searchValue }) => {
       });
       setAgentProviders(map);
     } catch (err) {
-      setError(err?.message || 'Erro ao carregar funcionarios IA.');
+      setError(err?.message || 'Erro ao carregar funcionários IA.');
     } finally {
       setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    load();
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
+
+  const stats = useMemo(() => ({
+    total:  agents.length,
+    active: agents.filter((a) => a.status === 'active').length,
+    paused: agents.filter((a) => a.status === 'paused').length,
+  }), [agents]);
 
   const filteredAgents = useMemo(() => {
-    const term = (searchValue || '').trim().toLowerCase();
+    const term = search.trim().toLowerCase();
     if (!term) return agents;
     return agents.filter((agent) =>
       [agent.name, agent.roleTitle, agent.description, agent.templateKey]
         .filter(Boolean)
-        .some((value) => String(value).toLowerCase().includes(term)),
+        .some((v) => String(v).toLowerCase().includes(term)),
     );
-  }, [agents, searchValue]);
+  }, [agents, search]);
 
   const setAgentStatus = async (agent, action) => {
     try {
@@ -970,83 +1308,118 @@ const AgentsBody = ({ searchValue }) => {
       await apiRequest(`/agents/${agent.id}/${action}`, { method: 'POST' });
       await load();
     } catch (err) {
-      setError(err?.message || 'Erro ao atualizar funcionario IA.');
+      setError(err?.message || 'Erro ao atualizar funcionário IA.');
     }
   };
 
   const archiveAgent = async (agent) => {
+    if (!confirm(`Arquivar "${agent.name}"? Esta ação não pode ser desfeita.`)) return;
     try {
       setError('');
       await apiRequest(`/agents/${agent.id}`, { method: 'DELETE' });
       await load();
     } catch (err) {
-      setError(err?.message || 'Erro ao arquivar funcionario IA.');
+      setError(err?.message || 'Erro ao arquivar funcionário IA.');
     }
   };
 
-  if (loading) {
-    return (
-      <div className="integrations-body">
-        <div className="text-center py-5">
-          <Spinner animation="border" variant="primary" />
-          <p className="mt-3">Carregando funcionarios IA...</p>
-        </div>
-      </div>
-    );
-  }
+  const toggleWebSearch = async (agent) => {
+    const next = !agent.webSearchEnabled;
+    setAgents((prev) => prev.map((a) => a.id === agent.id ? { ...a, webSearchEnabled: next } : a));
+    try {
+      await apiRequest(`/agents/${agent.id}`, { method: 'PATCH', body: { webSearchEnabled: next } });
+    } catch {
+      setAgents((prev) => prev.map((a) => a.id === agent.id ? { ...a, webSearchEnabled: !next } : a));
+    }
+  };
 
   return (
     <>
       {playgroundAgent && (
-        <AgentPlaygroundPanel
-          agent={playgroundAgent}
-          onClose={() => setPlaygroundAgent(null)}
-        />
+        <AgentPlaygroundPanel agent={playgroundAgent} onClose={() => setPlaygroundAgent(null)} />
       )}
       {accessAgent && (
-        <AgentAccessModal
-          agent={accessAgent}
-          onClose={() => setAccessAgent(null)}
-        />
+        <AgentAccessModal agent={accessAgent} onClose={() => setAccessAgent(null)} />
       )}
       {knowledgeAgent && (
-        <AgentKnowledgeModal
-          agent={knowledgeAgent}
-          onClose={() => setKnowledgeAgent(null)}
-        />
+        <AgentKnowledgeModal agent={knowledgeAgent} onClose={() => setKnowledgeAgent(null)} />
       )}
 
-      <div className="integrations-body">
+      <div className="fm-body">
         <SimpleBar className="nicescroll-bar">
-          <div className="p-4">
+          <div className="container-fluid px-4 py-4">
+
+            {/* Header */}
+            <div className="d-flex align-items-center justify-content-between mb-4">
+              <div>
+                <h4 className="fw-bold mb-0 d-flex align-items-center gap-2">
+                  <Users size={20} className="text-primary" /> Funcionários IA
+                </h4>
+                <small className="text-muted">Gerencie a sua força de trabalho inteligente</small>
+              </div>
+              <Button as={Link} href="/apps/agents/new" variant="primary" className="d-flex align-items-center gap-2">
+                <UserPlus size={16} /> Contratar Funcionário IA
+              </Button>
+            </div>
+
             {error && (
-              <Alert variant="danger" dismissible onClose={() => setError('')}>
+              <Alert variant="danger" className="py-2 small mb-3" dismissible onClose={() => setError('')}>
                 {error}
               </Alert>
             )}
 
-            <div className="d-flex justify-content-between align-items-center mb-4">
-              <div>
-                <h5 className="mb-1">Funcionarios IA contratados</h5>
-                <span className="text-muted">
-                  {filteredAgents.length} funcionario{filteredAgents.length !== 1 ? 's' : ''} ativo
-                  {filteredAgents.length !== 1 ? 's' : ''} no painel.
-                </span>
-              </div>
-              <Button variant="light" size="sm" onClick={load}>
-                <RefreshCw size={16} className="me-1" />
-                Atualizar
-              </Button>
-            </div>
+            {/* KPIs */}
+            <Row className="g-3 mb-4">
+              {[
+                { label: 'Total',    value: stats.total,  color: 'primary', icon: <Users     size={18} /> },
+                { label: 'Ativos',   value: stats.active, color: 'success', icon: <PlayCircle size={18} /> },
+                { label: 'Pausados', value: stats.paused, color: 'warning', icon: <PauseCircle size={18} /> },
+              ].map((k) => (
+                <Col key={k.label} xs={6} md={4}>
+                  <Card className="card-border text-center">
+                    <Card.Body className="py-3">
+                      <div className={`text-${k.color} mb-1`}>{k.icon}</div>
+                      <h3 className={`fw-bold text-${k.color} mb-0`}>{loading ? '…' : k.value}</h3>
+                      <small className="text-muted">{k.label}</small>
+                    </Card.Body>
+                  </Card>
+                </Col>
+              ))}
+            </Row>
 
-            {filteredAgents.length === 0 ? (
-              <Card className="card-border mb-4">
+            {/* Busca */}
+            <Card className="card-border mb-4">
+              <Card.Body className="py-2">
+                <InputGroup>
+                  <InputGroup.Text><Search size={15} /></InputGroup.Text>
+                  <Form.Control
+                    placeholder="Buscar por nome, cargo ou template…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </InputGroup>
+              </Card.Body>
+            </Card>
+
+            {/* Cards */}
+            {loading ? (
+              <div className="text-center py-5">
+                <Spinner animation="border" variant="primary" />
+                <p className="mt-3 text-muted">Carregando funcionários IA...</p>
+              </div>
+            ) : filteredAgents.length === 0 ? (
+              <Card className="card-border">
                 <Card.Body className="text-center py-5">
-                  <Briefcase size={42} className="text-muted mb-3" />
-                  <h5>Nenhum funcionario IA contratado</h5>
-                  <p className="text-muted mb-0">
-                    Contrate o primeiro funcionario IA pelo botao no topo da pagina.
+                  <Briefcase size={42} className="text-muted mb-3 opacity-25" />
+                  <h5>Nenhum funcionário IA encontrado</h5>
+                  <p className="text-muted mb-3">
+                    {search ? 'Tente outro termo de busca.' : 'Contrate o primeiro funcionário IA.'}
                   </p>
+                  {!search && (
+                    <Button as={Link} href="/apps/agents/new" variant="primary" size="sm">
+                      <UserPlus size={14} className="me-1" /> Contratar primeiro funcionário IA
+                    </Button>
+                  )}
                 </Card.Body>
               </Card>
             ) : (
@@ -1055,105 +1428,103 @@ const AgentsBody = ({ searchValue }) => {
                   <Col xl={4} md={6} key={agent.id}>
                     <Card className="card-border h-100">
                       <Card.Body>
-                        <div className="d-flex align-items-start justify-content-between gap-3">
-                          <div>
-                            <h6 className="mb-1">{agent.name}</h6>
-                            <p className="text-muted small mb-2">{agent.roleTitle}</p>
+                        {/* Cabeçalho do card */}
+                        <div className="d-flex align-items-start justify-content-between gap-2 mb-3">
+                          <div className="min-w-0">
+                            <Link href={`/apps/agents/${agent.id}`} className="text-decoration-none text-reset">
+                              <h6 className="fw-semibold mb-0">{agent.name}</h6>
+                            </Link>
+                            <small className="text-muted">{agent.roleTitle}</small>
                           </div>
-                          <Badge bg={agent.status === 'active' ? 'success' : 'secondary'}>
+                          <Badge bg={agent.status === 'active' ? 'success' : agent.status === 'paused' ? 'warning' : 'secondary'} className="flex-shrink-0">
                             {statusLabels[agent.status] || agent.status}
                           </Badge>
                         </div>
-                        <p className="text-muted mb-3">{agent.description}</p>
-                        <div className="d-flex align-items-center flex-wrap gap-2 mb-3">
-                          <Badge bg="light" text="dark">
-                            {autonomyLabels[agent.autonomyLevel] || agent.autonomyLevel}
-                          </Badge>
-                          <AgentProviderIcons
-                            providerKeys={agentProviders[agent.id] || []}
-                            size={20}
-                            max={6}
-                          />
-                        </div>
-                        {agent.skills?.length > 0 && (
-                          <div className="d-flex flex-wrap gap-2 mb-3">
-                            {agent.skills.slice(0, 4).map((skill) => (
-                              <Badge key={skill} bg="light" text="dark">
-                                {skill.replaceAll('_', ' ')}
-                              </Badge>
-                            ))}
+
+                        {/* Integrações ativas */}
+                        {(agentProviders[agent.id] || []).length > 0 && (
+                          <div className="mb-3">
+                            <AgentProviderIcons
+                              providerKeys={agentProviders[agent.id]}
+                              size={20}
+                              max={8}
+                            />
                           </div>
                         )}
-                        <div className="d-flex gap-2 flex-wrap">
-                          <Button
-                            variant="primary"
-                            size="sm"
-                            onClick={() => setPlaygroundAgent(agent)}
-                          >
-                            <MessageSquare size={15} className="me-1" />
-                            Testar
+
+                        {/* Linha 1: ações primárias */}
+                        <div className="d-flex gap-2 mb-2">
+                          <Button variant="primary" size="sm" onClick={() => setPlaygroundAgent(agent)}>
+                            <MessageSquare size={14} className="me-1" />Testar
                           </Button>
-                          <Button
-                            as={Link}
-                            href={`/apps/agents/connectors?agentId=${agent.id}`}
-                            variant="outline-primary"
-                            size="sm"
-                          >
-                            <LinkIcon size={15} className="me-1" />
-                            Conectores
+                          <Button as={Link} href={`/apps/agents/${agent.id}`} variant="outline-secondary" size="sm">
+                            <Eye size={14} className="me-1" />Perfil
                           </Button>
-                          <Button
-                            variant="outline-primary"
-                            size="sm"
-                            onClick={() => setKnowledgeAgent(agent)}
-                          >
-                            <BookOpen size={15} className="me-1" />
-                            Conhecimento
+                          <Button as={Link} href={`/apps/agents/${agent.id}/prompts`} variant="outline-primary" size="sm">
+                            <Edit3 size={14} className="me-1" />Personalidade
                           </Button>
-                          <Button
-                            as={Link}
-                            href={`/apps/agents/${agent.id}/prompts`}
-                            variant="outline-primary"
-                            size="sm"
-                          >
-                            <Edit3 size={15} className="me-1" />
-                            Personalidade
+                        </div>
+
+                        {/* Linha 2: ações de gestão + menu destrutivo */}
+                        <div className="d-flex gap-2 align-items-center flex-wrap">
+                          <Button as={Link} href={`/apps/agents/connectors?agentId=${agent.id}`} variant="outline-secondary" size="sm">
+                            <LinkIcon size={13} className="me-1" />Conectores
                           </Button>
-                          <Button
-                            variant="outline-secondary"
-                            size="sm"
-                            onClick={() => setAccessAgent(agent)}
-                          >
-                            <Shield size={15} className="me-1" />
-                            Acesso
+                          <Button variant="outline-secondary" size="sm" onClick={() => setKnowledgeAgent(agent)}>
+                            <BookOpen size={13} className="me-1" />Conhecimento
                           </Button>
-                          {agent.status === 'paused' ? (
-                            <Button
-                              variant="outline-success"
+                          <Button variant="outline-secondary" size="sm" onClick={() => setAccessAgent(agent)}>
+                            <Shield size={13} className="me-1" />Acesso
+                          </Button>
+
+                          {/* Toggle busca web */}
+                          <div
+                            className="d-flex align-items-center gap-1 ms-auto"
+                            title={agent.webSearchEnabled ? 'Busca web ativa' : 'Busca web desativada'}
+                            style={{ cursor: 'pointer' }}
+                            onClick={() => toggleWebSearch(agent)}
+                          >
+                            <span style={{ fontSize: 11, color: agent.webSearchEnabled ? '#3b82f6' : '#9ca3af' }}>
+                              🔍
+                            </span>
+                            <div style={{
+                              width: 32, height: 18, borderRadius: 9, border: 'none',
+                              background: agent.webSearchEnabled ? '#3b82f6' : '#d1d5db',
+                              position: 'relative', transition: 'background 0.2s', flexShrink: 0,
+                            }}>
+                              <span style={{
+                                position: 'absolute', top: 2, left: agent.webSearchEnabled ? 16 : 2,
+                                width: 14, height: 14, borderRadius: '50%', background: '#fff',
+                                transition: 'left 0.2s', display: 'block',
+                              }} />
+                            </div>
+                          </div>
+
+                          {/* Pausar/Retomar + Arquivar */}
+                          <Dropdown className="ms-auto">
+                            <Dropdown.Toggle
+                              variant="flush-dark"
+                              className="btn-icon btn-rounded flush-soft-hover no-caret"
                               size="sm"
-                              onClick={() => setAgentStatus(agent, 'resume')}
                             >
-                              <PlayCircle size={15} className="me-1" />
-                              Retomar
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="outline-secondary"
-                              size="sm"
-                              onClick={() => setAgentStatus(agent, 'pause')}
-                            >
-                              <PauseCircle size={15} className="me-1" />
-                              Pausar
-                            </Button>
-                          )}
-                          <Button
-                            variant="outline-danger"
-                            size="sm"
-                            onClick={() => archiveAgent(agent)}
-                          >
-                            <Trash2 size={15} className="me-1" />
-                            Arquivar
-                          </Button>
+                              <MoreVertical size={16} />
+                            </Dropdown.Toggle>
+                            <Dropdown.Menu align="end">
+                              {agent.status === 'paused' ? (
+                                <Dropdown.Item onClick={() => setAgentStatus(agent, 'resume')}>
+                                  <PlayCircle size={14} className="me-2 text-success" />Retomar
+                                </Dropdown.Item>
+                              ) : (
+                                <Dropdown.Item onClick={() => setAgentStatus(agent, 'pause')}>
+                                  <PauseCircle size={14} className="me-2" />Pausar
+                                </Dropdown.Item>
+                              )}
+                              <Dropdown.Divider />
+                              <Dropdown.Item className="text-danger" onClick={() => archiveAgent(agent)}>
+                                <Trash2 size={14} className="me-2" />Arquivar
+                              </Dropdown.Item>
+                            </Dropdown.Menu>
+                          </Dropdown>
                         </div>
                       </Card.Body>
                     </Card>

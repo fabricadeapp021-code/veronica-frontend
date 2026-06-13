@@ -17,7 +17,7 @@ export default function ProvisionalBrand({
       href={href}
       className={`text-decoration-none d-inline-flex align-items-center gap-2 ${centered ? 'justify-content-center' : ''} ${className}`}
       style={{ color }}
-      aria-label="OpenClaw SaaS"
+      aria-label="Sanare"
     >
       <span
         className="d-inline-flex align-items-center justify-content-center fw-bold"
@@ -32,12 +32,12 @@ export default function ProvisionalBrand({
           flex: '0 0 auto',
         }}
       >
-        OC
+        SA
       </span>
       {!compact && (
         <span className="d-flex flex-column" style={{ lineHeight: 1.05 }}>
           <span className="fw-bold" style={{ color, fontSize: 18, letterSpacing: 0 }}>
-            OpenClaw
+            Sanare
           </span>
           <span className="fw-medium" style={{ color: subColor, fontSize: 11, letterSpacing: 0 }}>
             SaaS Control UI

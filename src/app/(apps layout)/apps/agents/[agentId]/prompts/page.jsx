@@ -17,6 +17,7 @@ import {
   Spinner,
 } from 'react-bootstrap';
 import {
+  Activity,
   Archive,
   CheckCircle,
   Clock,
@@ -83,6 +84,18 @@ const PROMPT_SECTIONS = [
       'Quais ferramentas pode acionar?',
       'Quais acoes precisam de aprovacao?',
       'Quais ferramentas nunca devem ser usadas?',
+    ],
+  },
+  {
+    key: 'HEARTBEAT',
+    label: 'Heartbeat',
+    file: 'HEARTBEAT.md',
+    icon: Activity,
+    helper: 'Tarefas periodicas que o agente executa automaticamente. Deixe vazio (so comentarios #) para desativar.',
+    questions: [
+      'O agente deve verificar algo periodicamente?',
+      'Ha follow-ups ou checagens agendadas?',
+      'Deixe o arquivo apenas com # para desativar o heartbeat.',
     ],
   },
   {
