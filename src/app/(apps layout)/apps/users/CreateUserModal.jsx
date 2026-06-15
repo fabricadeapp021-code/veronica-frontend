@@ -8,6 +8,7 @@ const CreateUserModal = ({ show, onHide, onSuccess, currentUserRole }) => {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [whatsApp, setWhatsApp] = useState('');
   const [role, setRole] = useState('employee');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -16,6 +17,16 @@ const CreateUserModal = ({ show, onHide, onSuccess, currentUserRole }) => {
 
   const isOwner = currentUserRole === 'owner';
   const isAdmin = currentUserRole === 'admin';
+
+  const maskWhatsApp = (raw) => {
+    const d = raw.replace(/\D/g, '').slice(0, 13);
+    if (!d) return '';
+    let r = '+' + d.slice(0, 2);
+    if (d.length > 2) r += ' (' + d.slice(2, 4);
+    if (d.length > 4) r += ') ' + d.slice(4, 9);
+    if (d.length > 9) r += '-' + d.slice(9, 13);
+    return r;
+  };
 
   useEffect(() => {
     if (!error) return;
@@ -117,12 +128,14 @@ const CreateUserModal = ({ show, onHide, onSuccess, currentUserRole }) => {
         email,
         password,
         role,
+        whatsAppNumbers: whatsApp.trim() ? [whatsApp.trim()] : [],
       });
       
       // Limpa formulário
       setName('');
       setEmail('');
       setPassword('');
+      setWhatsApp('');
       setRole('employee');
       setFieldErrors({});
       setTouched({});
@@ -140,6 +153,7 @@ const CreateUserModal = ({ show, onHide, onSuccess, currentUserRole }) => {
     setName('');
     setEmail('');
     setPassword('');
+    setWhatsApp('');
     setRole('employee');
     setError('');
     setFieldErrors({});
@@ -209,7 +223,20 @@ const CreateUserModal = ({ show, onHide, onSuccess, currentUserRole }) => {
           </Form.Group>
 
           <Form.Group className="mb-3">
-            <Form.Label>Role <span className="text-danger">*</span></Form.Label>
+            <Form.Label>WhatsApp</Form.Label>
+            <Form.Control
+              type="tel"
+              placeholder="+55 (11) 99999-9999"
+              value={whatsApp}
+              onChange={(e) => setWhatsApp(maskWhatsApp(e.target.value))}
+            />
+            <Form.Text className="text-muted">
+              Necessário para vincular este usuário a agentes em modo PRIVADO.
+            </Form.Text>
+          </Form.Group>
+
+          <Form.Group className="mb-3">
+            <Form.Label>Tipo de acesso <span className="text-danger">*</span></Form.Label>
             {isAdmin ? (
               <>
                 <Form.Control
@@ -217,11 +244,11 @@ const CreateUserModal = ({ show, onHide, onSuccess, currentUserRole }) => {
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                 >
-                  <option value="employee">Employee</option>
-                  <option value="external">External</option>
+                  <option value="employee">Funcionário</option>
+                  <option value="external">Externo</option>
                 </Form.Control>
                 <Form.Text className="text-muted">
-                  Admin pode criar usuários com role EMPLOYEE ou EXTERNAL
+                  Admin pode criar Funcionários ou usuários Externos.
                 </Form.Text>
               </>
             ) : isOwner ? (
@@ -230,9 +257,9 @@ const CreateUserModal = ({ show, onHide, onSuccess, currentUserRole }) => {
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
               >
-                <option value="employee">Employee</option>
+                <option value="employee">Funcionário</option>
                 <option value="admin">Admin</option>
-                <option value="external">External</option>
+                <option value="external">Externo</option>
               </Form.Control>
             ) : (
               <Form.Control
@@ -240,7 +267,7 @@ const CreateUserModal = ({ show, onHide, onSuccess, currentUserRole }) => {
                 value="employee"
                 disabled
               >
-                <option value="employee">Employee</option>
+                <option value="employee">Funcionário</option>
               </Form.Control>
             )}
           </Form.Group>

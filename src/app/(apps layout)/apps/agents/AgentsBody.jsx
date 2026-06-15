@@ -6,6 +6,7 @@ import SimpleBar from 'simplebar-react';
 import {
   BookOpen,
   Briefcase,
+  Check,
   Edit3,
   Eye,
   Image as ImageIcon,
@@ -22,6 +23,7 @@ import {
   Send,
   Shield,
   Trash2,
+  UserCheck,
   UserPlus,
   Users,
   UserX,
@@ -292,6 +294,47 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
   useEffect(() => {
     try { localStorage.setItem(pgActiveKey, activeSessionId); } catch { /* ignore */ }
   }, [activeSessionId, pgActiveKey]);
+
+  // Carrega histórico do backend quando a sessão ativa não tem mensagens em memória
+  useEffect(() => {
+    const session = sessions.find(s => s.id === activeSessionId);
+    if (!session || session.messages.length > 0 || !session.sessionKey) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiRequest(`/agents/${agent._id}/sessions/${encodeURIComponent(session.sessionKey)}`);
+        if (cancelled || !Array.isArray(data?.messages) || data.messages.length === 0) return;
+
+        const mapped = data.messages.map((m) => {
+          let content = m.content;
+          if (Array.isArray(content)) {
+            const textBlock = content.find((b) => b.type === 'text');
+            content = textBlock?.text ?? '';
+          }
+          content = content ?? '';
+          // OpenClaw injeta contexto de remetente no início das mensagens user:
+          // "Sender (untrusted metadata): ```json {...} ``` [timestamp] mensagem real"
+          // Strip tudo até o final do bloco de timestamp [...]
+          if (m.role === 'user' && content.startsWith('Sender (untrusted metadata):')) {
+            const match = content.match(/\[[^\]]+\]\s*([\s\S]*)$/);
+            if (match) content = match[1].trimStart();
+          }
+          return { role: m.role, content, ts: m.timestamp ? new Date(m.timestamp).getTime() : Date.now() };
+        });
+
+        setSessions(prev => prev.map(s => s.id === activeSessionId && s.messages.length === 0
+          ? { ...s, messages: mapped }
+          : s,
+        ));
+      } catch {
+        /* histórico indisponível — ignora */
+      }
+    })();
+
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId]);
 
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -851,30 +894,68 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
 };
 
 /* ─── Access Modal ─── */
+const CHANNEL_LABEL = { whatsapp: 'WhatsApp', telegram: 'Telegram', playground: 'Playground' };
+const CHANNEL_VARIANT = { whatsapp: 'success', telegram: 'primary', playground: 'info' };
+
 const AgentAccessModal = ({ agent, onClose }) => {
-  const [contacts, setContacts] = useState([]);
-  const [accessMode, setAccessMode] = useState(agent.accessMode || 'PUBLIC');
-  const [phone, setPhone] = useState('');
-  const [name, setName] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [loadingContacts, setLoadingContacts] = useState(false);
-  const [err, setErr] = useState('');
+  const [accessMode, setAccessMode]       = useState(agent.accessMode || 'PUBLIC');
+  const [contacts, setContacts]           = useState([]);
+  const [total, setTotal]                 = useState(0);
+  const [page, setPage]                   = useState(1);
+  const [search, setSearch]               = useState('');
+  const [pending, setPending]             = useState([]);
+  const [platformUsers, setPlatformUsers] = useState([]);
+  const [employeeContacts, setEmployeeContacts] = useState([]);
+  const [loading, setLoading]             = useState(false);
+  const [saving, setSaving]               = useState(false);
+  const [err, setErr]                     = useState('');
+  const [grantTarget, setGrantTarget]     = useState(null); // userId being granted manually
+  const [manualChannelId, setManualChannelId] = useState('');
+  const [manualChannel, setManualChannel] = useState('whatsapp');
+  const LIMIT = 10;
 
-  const loadContacts = useCallback(async () => {
-    try {
-      setLoadingContacts(true);
-      const res = await apiRequest(`/agents/${agent.id}/access/contacts`);
-      setContacts(res?.contacts || []);
-    } catch {
+  // add-contact form (WHITELIST)
+  const [name, setName]           = useState('');
+  const [channelId, setChannelId] = useState('');
+  const [channel, setChannel]     = useState('whatsapp');
+
+  const loadAll = useCallback(async (p = page, s = search) => {
+    setLoading(true);
+    const params = new URLSearchParams({ status: 'approved', page: p, limit: LIMIT });
+    if (s) params.set('search', s);
+
+    const [approvedRes, pendingRes, employeeRes, usersRes] = await Promise.allSettled([
+      apiRequest(`/agents/${agent.id}/access/contacts?${params}`),
+      apiRequest(`/agents/${agent.id}/access/contacts/pending`),
+      apiRequest(`/agents/${agent.id}/access/contacts?type=EMPLOYEE&limit=200`),
+      apiRequest(`/admin/users`),
+    ]);
+
+    if (approvedRes.status === 'fulfilled') {
+      setContacts(approvedRes.value?.contacts || []);
+      setTotal(approvedRes.value?.total ?? 0);
+    } else {
       setContacts([]);
-    } finally {
-      setLoadingContacts(false);
+      setTotal(0);
     }
-  }, [agent.id]);
+    setPending(pendingRes.status === 'fulfilled' ? pendingRes.value?.contacts || [] : []);
+    setEmployeeContacts(employeeRes.status === 'fulfilled' ? employeeRes.value?.contacts || [] : []);
+    setPlatformUsers(usersRes.status === 'fulfilled' ? (usersRes.value?.users || usersRes.value?.data || []) : []);
+    setLoading(false);
+  }, [agent.id, page, search]);
 
-  useEffect(() => {
-    loadContacts();
-  }, [loadContacts]);
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const handleSearch = (val) => {
+    setSearch(val);
+    setPage(1);
+    loadAll(1, val);
+  };
+
+  const handlePage = (p) => {
+    setPage(p);
+    loadAll(p, search);
+  };
 
   const saveMode = async (mode) => {
     try {
@@ -894,17 +975,17 @@ const AgentAccessModal = ({ agent, onClose }) => {
 
   const addContact = async (e) => {
     e.preventDefault();
-    if (!phone.trim() || !name.trim()) return;
+    if (!channelId.trim() || !name.trim()) return;
     try {
       setSaving(true);
       setErr('');
       await apiRequest(`/agents/${agent.id}/access/contacts`, {
         method: 'POST',
-        body: { phone: phone.trim(), name: name.trim() },
+        body: { channel, channelId: channelId.trim(), name: name.trim() },
       });
-      setPhone('');
       setName('');
-      await loadContacts();
+      setChannelId('');
+      await loadAll();
     } catch (e) {
       setErr(e?.message || 'Erro ao adicionar contato.');
     } finally {
@@ -912,15 +993,67 @@ const AgentAccessModal = ({ agent, onClose }) => {
     }
   };
 
-  const removeContact = async (contactPhone) => {
+  const approveContact = async (contactId) => {
     try {
       setErr('');
-      await apiRequest(`/agents/${agent.id}/access/contacts/${encodeURIComponent(contactPhone)}`, {
-        method: 'DELETE',
-      });
-      await loadContacts();
+      await apiRequest(`/agents/${agent.id}/access/contacts/${contactId}/approve`, { method: 'PATCH' });
+      await loadAll();
+    } catch (e) {
+      setErr(e?.message || 'Erro ao aprovar contato.');
+    }
+  };
+
+  const blockContact = async (contactId) => {
+    try {
+      setErr('');
+      await apiRequest(`/agents/${agent.id}/access/contacts/${contactId}/block`, { method: 'PATCH' });
+      await loadAll();
+    } catch (e) {
+      setErr(e?.message || 'Erro ao bloquear contato.');
+    }
+  };
+
+  const removeContact = async (contactId) => {
+    try {
+      setErr('');
+      await apiRequest(`/agents/${agent.id}/access/contacts/${contactId}`, { method: 'DELETE' });
+      await loadAll();
     } catch (e) {
       setErr(e?.message || 'Erro ao remover contato.');
+    }
+  };
+
+  const grantUser = async (user, chId, ch) => {
+    try {
+      setErr('');
+      setSaving(true);
+      await apiRequest(`/agents/${agent.id}/access/contacts`, {
+        method: 'POST',
+        body: {
+          channel: ch || 'whatsapp',
+          channelId: chId,
+          name: user.name || user.email,
+          type: 'EMPLOYEE',
+          linkedUserId: user._id,
+        },
+      });
+      setGrantTarget(null);
+      setManualChannelId('');
+      await loadAll();
+    } catch (e) {
+      setErr(e?.message || 'Erro ao conceder acesso.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const revokeUser = async (contactId) => {
+    try {
+      setErr('');
+      await apiRequest(`/agents/${agent.id}/access/contacts/${contactId}`, { method: 'DELETE' });
+      await loadAll();
+    } catch (e) {
+      setErr(e?.message || 'Erro ao revogar acesso.');
     }
   };
 
@@ -932,6 +1065,7 @@ const AgentAccessModal = ({ agent, onClose }) => {
           Controle de Acesso — {agent.name}
         </Modal.Title>
       </Modal.Header>
+
       <Modal.Body>
         {err && (
           <Alert variant="danger" dismissible onClose={() => setErr('')} className="py-2 small mb-3">
@@ -939,17 +1073,18 @@ const AgentAccessModal = ({ agent, onClose }) => {
           </Alert>
         )}
 
+        {/* ── Mode selector ── */}
         <div className="mb-4">
           <p className="fw-semibold mb-2">Modo de acesso</p>
-          <div className="d-flex gap-2">
+          <div className="d-flex gap-2 flex-wrap">
             <Button
               variant={accessMode === 'PUBLIC' ? 'primary' : 'outline-secondary'}
               size="sm"
               disabled={saving}
               onClick={() => saveMode('PUBLIC')}
             >
-              <Shield size={14} className="me-1" />
-              Público — qualquer número pode conversar
+              <Shield size={13} className="me-1" />
+              Público — Qualquer Número Pode Conversar
             </Button>
             <Button
               variant={accessMode === 'WHITELIST' ? 'warning' : 'outline-secondary'}
@@ -957,19 +1092,87 @@ const AgentAccessModal = ({ agent, onClose }) => {
               disabled={saving}
               onClick={() => saveMode('WHITELIST')}
             >
-              <Lock size={14} className="me-1" />
-              Whitelist — somente contatos autorizados
+              <Lock size={13} className="me-1" />
+              Whitelist — Somente Contatos Autorizados
+            </Button>
+            <Button
+              variant={accessMode === 'PRIVATE' ? 'danger' : 'outline-secondary'}
+              size="sm"
+              disabled={saving}
+              onClick={() => saveMode('PRIVATE')}
+            >
+              <UserCheck size={13} className="me-1" />
+              Privado — Somente Funcionários
             </Button>
           </div>
         </div>
 
+        {/* ── PUBLIC info ── */}
+        {accessMode === 'PUBLIC' && (
+          <div className="text-muted small px-1">
+            <Shield size={13} className="me-1 opacity-50" />
+            Qualquer pessoa que encontrar este agente pode iniciar uma conversa.
+          </div>
+        )}
+
+        {/* ── WHITELIST section ── */}
         {accessMode === 'WHITELIST' && (
           <>
             <hr />
-            <p className="fw-semibold mb-2">Contatos autorizados</p>
+
+            {/* Pending requests */}
+            {pending.length > 0 && (
+              <div className="mb-4">
+                <p className="fw-semibold mb-2 d-flex align-items-center gap-2">
+                  Solicitações pendentes
+                  <Badge bg="warning" text="dark" pill>{pending.length}</Badge>
+                </p>
+                <div className="d-flex flex-column gap-2">
+                  {pending.map((c) => (
+                    <div
+                      key={c._id}
+                      className="d-flex align-items-center justify-content-between px-3 py-2 rounded border border-warning bg-warning bg-opacity-10"
+                    >
+                      <div>
+                        <span className="fw-semibold me-2">{c.name}</span>
+                        <Badge bg={CHANNEL_VARIANT[c.channel] || 'secondary'} className="me-2 small">
+                          {CHANNEL_LABEL[c.channel] || c.channel}
+                        </Badge>
+                        <span className="text-muted small">{c.channelId}</span>
+                        {c.accessReason && (
+                          <div className="text-muted small mt-1 fst-italic">"{c.accessReason}"</div>
+                        )}
+                      </div>
+                      <div className="d-flex gap-1">
+                        <Button variant="success" size="sm" onClick={() => approveContact(c._id)}>
+                          <Check size={13} />
+                        </Button>
+                        <Button variant="outline-danger" size="sm" onClick={() => blockContact(c._id)}>
+                          <X size={13} />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Add contact manually */}
+            <p className="fw-semibold mb-2">Adicionar contato</p>
             <Form onSubmit={addContact} className="mb-3">
               <Row className="g-2">
-                <Col sm={4}>
+                <Col sm={3}>
+                  <Form.Select
+                    size="sm"
+                    value={channel}
+                    onChange={(e) => setChannel(e.target.value)}
+                  >
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="telegram">Telegram</option>
+                    <option value="playground">Playground</option>
+                  </Form.Select>
+                </Col>
+                <Col sm={3}>
                   <Form.Control
                     size="sm"
                     placeholder="Nome"
@@ -978,18 +1181,18 @@ const AgentAccessModal = ({ agent, onClose }) => {
                     required
                   />
                 </Col>
-                <Col sm={5}>
+                <Col sm={4}>
                   <InputGroup size="sm">
                     <InputGroup.Text><Phone size={13} /></InputGroup.Text>
                     <Form.Control
                       placeholder="+55 21 99999-0000"
-                      value={phone}
-                      onChange={(e) => setPhone(e.target.value)}
+                      value={channelId}
+                      onChange={(e) => setChannelId(e.target.value)}
                       required
                     />
                   </InputGroup>
                 </Col>
-                <Col sm={3}>
+                <Col sm={2}>
                   <Button type="submit" size="sm" variant="success" className="w-100" disabled={saving}>
                     Adicionar
                   </Button>
@@ -997,38 +1200,201 @@ const AgentAccessModal = ({ agent, onClose }) => {
               </Row>
             </Form>
 
-            {loadingContacts ? (
+            {/* Approved contacts — search + list + pagination */}
+            <div className="d-flex align-items-center justify-content-between mb-2">
+              <p className="fw-semibold mb-0">
+                Contatos autorizados
+                {total > 0 && <span className="text-muted fw-normal ms-2 small">({total})</span>}
+              </p>
+              <InputGroup size="sm" style={{ maxWidth: 220 }}>
+                <InputGroup.Text><Search size={12} /></InputGroup.Text>
+                <Form.Control
+                  placeholder="Buscar nome ou número..."
+                  value={search}
+                  onChange={(e) => handleSearch(e.target.value)}
+                />
+                {search && (
+                  <Button variant="outline-secondary" size="sm" onClick={() => handleSearch('')}>
+                    <X size={12} />
+                  </Button>
+                )}
+              </InputGroup>
+            </div>
+
+            {loading ? (
               <div className="text-center py-3"><Spinner size="sm" /></div>
             ) : contacts.length === 0 ? (
               <div className="text-center py-3 text-muted small">
                 <UserX size={28} className="mb-2 opacity-25 d-block mx-auto" />
-                Nenhum contato autorizado. Adicione acima.
+                {search ? 'Nenhum contato encontrado para esta busca.' : 'Nenhum contato autorizado. Adicione acima.'}
+              </div>
+            ) : (
+              <>
+                <div className="d-flex flex-column gap-2 mb-3">
+                  {contacts.map((c) => (
+                    <div
+                      key={c._id}
+                      className="d-flex align-items-center justify-content-between px-3 py-2 rounded border"
+                    >
+                      <div>
+                        <span className="fw-semibold me-2">{c.name}</span>
+                        <Badge bg={CHANNEL_VARIANT[c.channel] || 'secondary'} className="me-2 small">
+                          {CHANNEL_LABEL[c.channel] || c.channel}
+                        </Badge>
+                        <span className="text-muted small">{c.channelId}</span>
+                      </div>
+                      <Button variant="outline-danger" size="sm" onClick={() => removeContact(c._id)}>
+                        <Trash2 size={13} />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Pagination */}
+                {total > LIMIT && (
+                  <div className="d-flex align-items-center justify-content-between small text-muted">
+                    <Button
+                      variant="outline-secondary"
+                      size="sm"
+                      disabled={page <= 1}
+                      onClick={() => handlePage(page - 1)}
+                    >
+                      ← Anterior
+                    </Button>
+                    <span>Página {page} de {Math.ceil(total / LIMIT)}</span>
+                    <Button
+                      variant="outline-secondary"
+                      size="sm"
+                      disabled={page >= Math.ceil(total / LIMIT)}
+                      onClick={() => handlePage(page + 1)}
+                    >
+                      Próxima →
+                    </Button>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+
+        {/* ── PRIVATE section ── */}
+        {accessMode === 'PRIVATE' && (
+          <>
+            <hr />
+            <p className="fw-semibold mb-1">Funcionários com acesso</p>
+            <p className="text-muted small mb-3">
+              Somente funcionários abaixo podem interagir com este agente via WhatsApp ou Telegram.
+            </p>
+
+            {loading ? (
+              <div className="text-center py-3"><Spinner size="sm" /></div>
+            ) : platformUsers.length === 0 ? (
+              <div className="text-center py-3 text-muted small">
+                <Users size={28} className="mb-2 opacity-25 d-block mx-auto" />
+                Nenhum usuário cadastrado na plataforma.
               </div>
             ) : (
               <div className="d-flex flex-column gap-2">
-                {contacts.map((c) => (
-                  <div
-                    key={c.phone}
-                    className="d-flex align-items-center justify-content-between px-3 py-2 rounded border"
-                  >
-                    <div>
-                      <span className="fw-semibold me-2">{c.name}</span>
-                      <span className="text-muted small">{c.phone}</span>
+                {platformUsers.map((u) => {
+                  const linked = employeeContacts.find(c => c.linkedUserId === u._id);
+                  const isExpanded = grantTarget === u._id;
+                  const defaultPhone = u.whatsAppNumbers?.[0] || '';
+
+                  return (
+                    <div key={u._id} className="rounded border overflow-hidden">
+                      <div className="d-flex align-items-center justify-content-between px-3 py-2">
+                        <div className="d-flex align-items-center gap-2">
+                          <div>
+                            <span className="fw-semibold me-2">{u.name || u.email}</span>
+                            <Badge bg="secondary" className="me-1 small text-capitalize">{u.role}</Badge>
+                            {linked && (
+                              <Badge bg={CHANNEL_VARIANT[linked.channel] || 'secondary'} className="small">
+                                {CHANNEL_LABEL[linked.channel]} · {linked.channelId}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+
+                        {linked ? (
+                          <Button
+                            variant="outline-danger"
+                            size="sm"
+                            onClick={() => revokeUser(linked._id)}
+                          >
+                            <X size={13} className="me-1" />
+                            Revogar
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="outline-success"
+                            size="sm"
+                            onClick={() => {
+                              if (defaultPhone) {
+                                grantUser(u, defaultPhone, 'whatsapp');
+                              } else {
+                                setGrantTarget(isExpanded ? null : u._id);
+                                setManualChannelId('');
+                              }
+                            }}
+                            disabled={saving}
+                          >
+                            <UserPlus size={13} className="me-1" />
+                            Conceder
+                          </Button>
+                        )}
+                      </div>
+
+                      {/* Inline form when user has no WhatsApp pre-registered */}
+                      {isExpanded && !linked && (
+                        <div className="px-3 pb-3 pt-1 border-top bg-light bg-opacity-10">
+                          <p className="small text-muted mb-2">
+                            Nenhum número WhatsApp cadastrado para este usuário. Informe o canal de acesso:
+                          </p>
+                          <Row className="g-2">
+                            <Col sm={4}>
+                              <Form.Select
+                                size="sm"
+                                value={manualChannel}
+                                onChange={e => setManualChannel(e.target.value)}
+                              >
+                                <option value="whatsapp">WhatsApp</option>
+                                <option value="telegram">Telegram</option>
+                              </Form.Select>
+                            </Col>
+                            <Col sm={5}>
+                              <InputGroup size="sm">
+                                <InputGroup.Text><Phone size={13} /></InputGroup.Text>
+                                <Form.Control
+                                  placeholder="+55 21 99999-0000"
+                                  value={manualChannelId}
+                                  onChange={e => setManualChannelId(e.target.value)}
+                                />
+                              </InputGroup>
+                            </Col>
+                            <Col sm={3}>
+                              <Button
+                                size="sm"
+                                variant="success"
+                                className="w-100"
+                                disabled={!manualChannelId.trim() || saving}
+                                onClick={() => grantUser(u, manualChannelId.trim(), manualChannel)}
+                              >
+                                <Check size={13} className="me-1" />
+                                Salvar
+                              </Button>
+                            </Col>
+                          </Row>
+                        </div>
+                      )}
                     </div>
-                    <Button
-                      variant="outline-danger"
-                      size="sm"
-                      onClick={() => removeContact(c.phone)}
-                    >
-                      <Trash2 size={13} />
-                    </Button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </>
         )}
       </Modal.Body>
+
       <Modal.Footer>
         <Button variant="secondary" size="sm" onClick={onClose}>Fechar</Button>
       </Modal.Footer>

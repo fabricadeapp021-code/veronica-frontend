@@ -645,7 +645,9 @@ const TopNav = () => {
                             <Dropdown className="ps-2">
                                 <Dropdown.Toggle as={Link} href="#" className="no-caret">
                                     <div className="avatar avatar-rounded avatar-xs">
-                                        <Image src={avatar12} alt="user" className="avatar-img" />
+                                        {user?.avatarUrl
+                                            ? <img src={user.avatarUrl} alt={displayName} className="avatar-img" style={{ objectFit: 'cover' }} />
+                                            : <span className="initial-wrap">{displayInitials}</span>}
                                     </div>
                                 </Dropdown.Toggle>
                                 <Dropdown.Menu align="end">
@@ -653,7 +655,9 @@ const TopNav = () => {
                                         <div className="media">
                                             <div className="media-head me-2">
                                                 <div className="avatar avatar-primary avatar-sm avatar-rounded">
-                                                    <span className="initial-wrap">{displayInitials}</span>
+                                                    {user?.avatarUrl
+                                                        ? <img src={user.avatarUrl} alt={displayName} className="avatar-img" style={{ objectFit: 'cover', borderRadius: '50%' }} />
+                                                        : <span className="initial-wrap">{displayInitials}</span>}
                                                 </div>
                                             </div>
                                             <div className="media-body">
@@ -664,7 +668,9 @@ const TopNav = () => {
                                                             <div className="media align-items-center active-user mb-3">
                                                                 <div className="media-head me-2">
                                                                     <div className="avatar avatar-primary avatar-xs avatar-rounded">
-                                                                        <span className="initial-wrap">{displayInitials}</span>
+                                                                        {user?.avatarUrl
+                                                                            ? <img src={user.avatarUrl} alt={displayName} className="avatar-img" style={{ objectFit: 'cover', borderRadius: '50%' }} />
+                                                                            : <span className="initial-wrap">{displayInitials}</span>}
                                                                     </div>
                                                                 </div>
                                                                 <div className="media-body">

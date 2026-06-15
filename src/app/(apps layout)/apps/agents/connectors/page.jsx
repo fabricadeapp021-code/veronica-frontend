@@ -168,6 +168,17 @@ const PROVIDER_HELP_GUIDE = {
     ],
     note: 'Quanto mais específicos os documentos, melhores serão as respostas do agente.',
   },
+  wordpress: {
+    title: 'Como conectar o WordPress Imóveis',
+    steps: [
+      { label: 'Informe a URL do site', detail: 'Cole a URL raiz do site WordPress da imobiliária, ex: https://suaimobiliaria.com.br' },
+      { label: 'Verifique o acesso à API', detail: 'Acesse {siteURL}/wp-json/ no navegador. Se retornar JSON, a API está aberta. Se retornar 403, peça ao admin do site para liberar o REST API.' },
+      { label: 'Clique em Conectar', detail: 'O sistema vai detectar automaticamente se o site usa Houzez, WP Property ou outro tema e sincronizar os imóveis.' },
+      { label: 'Aguarde a sincronização inicial', detail: 'Os imóveis são baixados e indexados para o agente. Dependendo do volume, pode levar alguns minutos.' },
+      { label: 'Teste no playground', detail: 'No playground do agente, pergunte "Tem apartamentos de 2 quartos disponíveis?" para validar.' },
+    ],
+    note: 'A API do WordPress deve estar acessível sem autenticação. Sites com plugin de segurança (Wordfence, All In One Security) podem bloquear o /wp-json/. Peça ao admin para liberar o endpoint.',
+  },
   webhook_inbound: {
     title: 'Como usar o Webhook Inbound',
     steps: [
@@ -309,6 +320,11 @@ const Icons = {
   webhook: ({ size = 20 }) => <Globe size={size} color="#6b7280" />,
   openclaw: ({ size = 20 }) => <Activity size={size} color="#8b5cf6" />,
   helpdesk: ({ size = 20 }) => <Headphones size={size} color="#f59e0b" />,
+  wordpress: ({ size = 20 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zM2.292 12c0-1.17.204-2.292.576-3.337l3.176 8.7A9.712 9.712 0 012.292 12zm9.708 9.708a9.708 9.708 0 01-2.74-.394l2.91-8.455 2.98 8.164a.977.977 0 00.073.14 9.706 9.706 0 01-3.223.545zm1.337-14.424c.583-.03 1.109-.09 1.109-.09.522-.062.461-.829-.061-.8 0 0-1.569.122-2.582.122-1.013 0-2.613-.122-2.613-.122-.522-.03-.583.768-.061.8 0 0 .496.06 1.018.09l1.512 4.143-2.123 6.365-3.536-10.508c.582-.03 1.109-.09 1.109-.09.522-.062.461-.829-.061-.8 0 0-1.569.122-2.582.122-.182 0-.396-.005-.623-.012A9.717 9.717 0 0112 2.292c2.537 0 4.85.969 6.588 2.556-.042-.003-.083-.008-.126-.008-1.012 0-1.73.882-1.73 1.829 0 .85.49 1.567.583 1.829.09.261.706 2.122.583 2.706l-.767 2.56-2.794-8.48zm4.572 9.944l2.952-8.53c.55-1.376.735-2.474.735-3.453 0-.355-.023-.685-.065-1.002A9.716 9.716 0 0121.708 12c0 2.45-.905 4.688-2.399 6.398l-.4-1.17z" fill="#21759B"/>
+    </svg>
+  ),
   documents: ({ size = 20 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke="#6366f1" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -374,6 +390,7 @@ const providerMeta = {
   pipedrive:        { BrandComponent: Icons.pipedrive,      color: '#1A73E8' },
   webhook:          { BrandComponent: Icons.webhook,        color: '#6b7280' },
   webhook_inbound:  { BrandComponent: Icons.webhook,        color: '#8b5cf6' },
+  wordpress:        { BrandComponent: Icons.wordpress,      color: '#21759B' },
 };
 
 const defaultMeta = { BrandComponent: null, color: '#6b7280' };
@@ -393,8 +410,8 @@ const isOAuth = (key) => isGoogle(key) || isSlack(key);
 const defaultFormByProvider = {
   whatsapp: {
     name: 'WhatsApp Atendimento',
-    config: { phoneNumber: '', provider: 'openclaw_gateway' },
-    credentials: { apiKey: '' },
+    config: { phoneNumber: '', provider: 'meta_waba' },
+    credentials: { phoneNumberId: '', accessToken: '' },
   },
   telegram: {
     name: 'Telegram Bot',
@@ -481,6 +498,11 @@ const defaultFormByProvider = {
     config: { provider: 'webhook_inbound', messageField: '', senderField: '' },
     credentials: {},
   },
+  wordpress: {
+    name: 'WordPress Imóveis',
+    config: { provider: 'wordpress', siteUrl: '', syncIntervalHours: 6, perPage: 50, cptSlug: '' },
+    credentials: {},
+  },
 };
 
 const ProviderFields = ({ providerKey, form, updateForm }) => {
@@ -514,7 +536,11 @@ const ProviderFields = ({ providerKey, form, updateForm }) => {
   ];
 
   const fields = {
-    whatsapp: [cfg('phoneNumber', 'Número do WhatsApp', '+5511999990000')],
+    whatsapp: [
+      cfg('phoneNumber', 'Número do WhatsApp (exibição)', '+5511999990000'),
+      cred('phoneNumberId', 'Phone Number ID (Meta)', '12345678901234'),
+      cred('accessToken', 'Access Token (Meta)', 'EAAx...'),
+    ],
     telegram: [
       cred('botToken', 'Bot Token', '123456789:AAHxxxxxxxxxxxxxxxx'),
       cfg('botUsername', 'Username do bot (opcional)', '@veronica_ia_bot', 'text'),
@@ -633,6 +659,50 @@ const ProviderFields = ({ providerKey, form, updateForm }) => {
       cfg('senderField', 'Campo do remetente (opcional)', 'Ex: phone ou userId'),
     ],
     openclaw_gateway: [cfg('healthPath', 'Health path', '/openclaw/gateway/health')],
+    wordpress: [
+      cfg('siteUrl', 'URL do site WordPress', 'https://suaimobiliaria.com.br', 'url'),
+      <Form.Group className="mb-3" key="cptSlug">
+        <Form.Label>
+          Slug do tipo de imóvel{' '}
+          <span className="text-muted fw-normal" style={{ fontSize: 11 }}>(opcional)</span>
+        </Form.Label>
+        <Form.Control
+          type="text"
+          value={form.config?.cptSlug || ''}
+          onChange={(e) => updateForm('config', 'cptSlug', e.target.value)}
+          placeholder="Ex: imoveis, property, lancamento"
+        />
+        <Form.Text className="text-muted">
+          Deixe em branco para detecção automática. O sistema testa os slugs mais comuns
+          ({'{'}siteURL{'}/'}/wp-json/wp/v2/imoveis, /property…). Preencha somente se a detecção
+          automática não funcionar — use o slug exato que aparece em /wp-json/wp/v2/types.
+        </Form.Text>
+      </Form.Group>,
+      <Form.Group className="mb-3" key="syncIntervalHours">
+        <Form.Label>Intervalo de sincronização</Form.Label>
+        <Form.Select
+          value={form.config?.syncIntervalHours || 6}
+          onChange={(e) => updateForm('config', 'syncIntervalHours', Number(e.target.value))}
+        >
+          <option value={1}>A cada 1 hora</option>
+          <option value={3}>A cada 3 horas</option>
+          <option value={6}>A cada 6 horas (recomendado)</option>
+          <option value={12}>A cada 12 horas</option>
+          <option value={24}>Uma vez por dia</option>
+        </Form.Select>
+        <Form.Text className="text-muted">
+          Define com que frequência os imóveis são sincronizados do WordPress para o agente.
+        </Form.Text>
+      </Form.Group>,
+      <div key="wp-info" className="rounded-2 px-3 py-2 mb-1 d-flex gap-2 align-items-start" style={{ background: 'rgba(33,117,155,0.07)', border: '1px solid rgba(33,117,155,0.2)', fontSize: 12 }}>
+        <Globe size={14} color="#21759B" style={{ marginTop: 2, flexShrink: 0 }} />
+        <span className="text-muted">
+          Compatível com Houzez, WP Property, Real Homes, JetEngine e outros temas imobiliários.
+          Para o site <strong>lancamentos-rj.com</strong> use o slug <code>imoveis</code>.
+          A API do WordPress deve estar acessível publicamente.
+        </span>
+      </div>,
+    ],
   };
 
   return <>{(fields[providerKey] || [])}</>;
