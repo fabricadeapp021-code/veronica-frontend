@@ -34,3 +34,80 @@ jobs:
           server: ${{ secrets.CAPROVER_SERVER }}
           app: ${{ secrets.CAPROVER_APP }}
           token: ${{ secrets.CAPROVER_APP_TOKEN }}
+
+      - name: Aguardar build e verificar status
+        run: |
+          SERVER="${{ secrets.CAPROVER_SERVER }}"
+          APP="${{ secrets.CAPROVER_APP }}"
+          PASSWORD="${{ secrets.CAPROVER_PASSWORD }}"
+
+          # Login na API do CapRover
+          LOGIN_RESPONSE=$(curl -s -X POST "${SERVER}/api/v2/login" \
+            -H "Content-Type: application/json" \
+            -H "x-namespace: captain" \
+            -d "{\"password\":\"${PASSWORD}\"}")
+
+          TOKEN=$(echo "$LOGIN_RESPONSE" | jq -r '.data.token')
+
+          if [ "$TOKEN" = "null" ] || [ -z "$TOKEN" ]; then
+            echo "❌ Falha ao autenticar na API do CapRover"
+            echo "Resposta: $(echo "$LOGIN_RESPONSE" | head -c 200)"
+            exit 1
+          fi
+
+          echo "✅ Autenticado no CapRover"
+
+          # Polling até o build terminar (máximo 5 minutos)
+          MAX_ATTEMPTS=30
+          ATTEMPT=0
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            RESPONSE=$(curl -s -X GET "${SERVER}/api/v2/user/apps/appDefinitions" \
+              -H "x-namespace: captain" \
+              -H "x-captain-auth: ${TOKEN}")
+
+            # Validar se resposta é JSON
+            if ! echo "$RESPONSE" | jq empty 2>/dev/null; then
+              echo "⚠️ Resposta não é JSON válido: $(echo "$RESPONSE" | head -c 300)"
+              ATTEMPT=$((ATTEMPT + 1))
+              sleep 10
+              continue
+            fi
+
+            APP_EXISTS=$(echo "$RESPONSE" | jq --arg APP "$APP" '[.data.appDefinitions[] | select(.appName == $APP)] | length')
+
+            if [ "$APP_EXISTS" = "0" ]; then
+              echo "❌ App '${APP}' não encontrado no CapRover. Apps disponíveis:"
+              echo "$RESPONSE" | jq -r '.data.appDefinitions[].appName'
+              exit 1
+            fi
+
+            IS_BUILDING=$(echo "$RESPONSE" | jq -r --arg APP "$APP" '.data.appDefinitions[] | select(.appName == $APP) | .isAppBuilding | tostring')
+
+            if [ "$IS_BUILDING" = "false" ]; then
+              echo "✅ Build finalizado!"
+              break
+            fi
+
+            ATTEMPT=$((ATTEMPT + 1))
+            echo "⏳ Build em andamento... (tentativa ${ATTEMPT}/${MAX_ATTEMPTS})"
+            sleep 10
+          done
+
+          if [ "$IS_BUILDING" = "true" ]; then
+            echo "⚠️ Timeout: build não finalizou em 5 minutos"
+            exit 1
+          fi
+
+          if [ "$IS_BUILDING" = "null" ]; then
+            echo "⚠️ App '${APP}' não encontrado no CapRover"
+            exit 1
+          fi
+
+          # Verificar se o deploy teve sucesso
+          DEPLOYED_VERSION=$(echo "$RESPONSE" | jq -r --arg APP "$APP" '.data.appDefinitions[] | select(.appName == $APP) | .deployedVersion | tostring')
+          if [ "$DEPLOYED_VERSION" = "0" ]; then
+            echo "❌ Deploy falhou!"
+            exit 1
+          fi
+
+          echo "🚀 Deploy concluído com sucesso! (versão: ${DEPLOYED_VERSION})"
