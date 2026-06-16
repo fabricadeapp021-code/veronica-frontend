@@ -57,8 +57,8 @@ jobs:
 
           echo "✅ Autenticado no CapRover"
 
-          # Polling até o build terminar (máximo 5 minutos)
-          MAX_ATTEMPTS=30
+          # Polling até o build terminar (máximo 15 minutos)
+          MAX_ATTEMPTS=90
           ATTEMPT=0
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
             RESPONSE=$(curl -s -X GET "${SERVER}/api/v2/user/apps/appDefinitions" \
@@ -94,7 +94,7 @@ jobs:
           done
 
           if [ "$IS_BUILDING" = "true" ]; then
-            echo "⚠️ Timeout: build não finalizou em 5 minutos"
+            echo "⚠️ Timeout: build não finalizou em 15 minutos"
             exit 1
           fi
 
