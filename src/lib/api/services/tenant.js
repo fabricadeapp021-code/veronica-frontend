@@ -1,26 +1,45 @@
 import { apiRequest } from '../client';
 
 /**
- * Busca as configurações do tenant
- * @param {string} tenantId - ID do tenant
- * @returns {Promise<Object>} Configurações do tenant
+ * Busca as configurações da conta (tenant autenticado)
+ * @returns {Promise<Object>} Configurações da conta
  */
-export async function getTenantSettings(tenantId) {
-  return await apiRequest(`/tenants/${tenantId}/settings`, {
-    method: 'GET',
-  });
+export async function getTenantSettings() {
+  const res = await apiRequest('/admin/settings', { method: 'GET' });
+  return res?.data ?? res;
 }
 
 /**
- * Atualiza as configurações do tenant
- * @param {string} tenantId - ID do tenant
+ * Atualiza as configurações da conta (tenant autenticado)
  * @param {Object} settings - Configurações a serem atualizadas
  * @returns {Promise<Object>} Resultado da atualização
  */
-export async function updateTenantSettings(tenantId, settings) {
-  return await apiRequest(`/tenants/${tenantId}/settings`, {
-    method: 'PATCH',
+export async function updateTenantSettings(settings) {
+  const res = await apiRequest('/admin/settings', {
+    method: 'PUT',
     body: settings,
+  });
+  return res?.data ?? res;
+}
+
+/**
+ * Solicita a exportação dos dados da conta (portabilidade — LGPD)
+ * @returns {Promise<Object>} Dados exportados
+ */
+export async function exportTenantData() {
+  const res = await apiRequest('/admin/settings/privacy/export', { method: 'POST' });
+  return res?.data ?? res;
+}
+
+/**
+ * Solicita a exclusão dos dados da conta (direito ao esquecimento — LGPD)
+ * @param {string} [reason] - Motivo opcional da solicitação
+ * @returns {Promise<Object>} Confirmação do registro da solicitação
+ */
+export async function requestTenantDataDeletion(reason) {
+  return await apiRequest('/admin/settings/privacy/delete-request', {
+    method: 'POST',
+    body: { reason },
   });
 }
 

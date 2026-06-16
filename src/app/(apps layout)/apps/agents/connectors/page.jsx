@@ -743,6 +743,9 @@ const AgentConnectorsPage = () => {
   const [smtpVerifyOk, setSmtpVerifyOk] = useState(false);
   const [smtpVerifyError, setSmtpVerifyError] = useState('');
 
+  const [wpSyncStatus, setWpSyncStatus] = useState(null);
+  const [wpSyncing, setWpSyncing] = useState(false);
+
   const [helpProvider, setHelpProvider] = useState(null);
 
   const load = useCallback(async () => {
@@ -915,6 +918,53 @@ const AgentConnectorsPage = () => {
     }
   }, []);
 
+  const formatTimeAgo = (dateStr) => {
+    if (!dateStr) return '';
+    const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 60000);
+    if (diff < 1) return 'agora';
+    if (diff < 60) return `${diff}min atrás`;
+    if (diff < 1440) return `${Math.floor(diff / 60)}h atrás`;
+    return `${Math.floor(diff / 1440)}d atrás`;
+  };
+
+  const formatCostUsd = (value) => {
+    const n = Number(value) || 0;
+    if (n === 0) return '$0,00';
+    return `$${n.toFixed(n < 0.01 ? 4 : 2)}`;
+  };
+
+  const fetchWpSyncStatus = useCallback(async () => {
+    if (!selectedAgentId) return;
+    const isLinked = agentLinks.some((l) => l.integration?.providerKey === 'wordpress');
+    if (!isLinked) { setWpSyncStatus(null); return; }
+    try {
+      const res = await apiRequest(`/agents/${selectedAgentId}/integrations/wordpress/sync/status`);
+      setWpSyncStatus(res);
+    } catch { /* non-critical */ }
+  }, [selectedAgentId, agentLinks]);
+
+  const triggerWpSync = async () => {
+    if (!selectedAgentId || wpSyncing) return;
+    try {
+      setWpSyncing(true);
+      await apiRequest(`/agents/${selectedAgentId}/integrations/wordpress/sync`, { method: 'POST' });
+      setWpSyncStatus((prev) => ({ ...(prev || {}), syncStatus: 'pending', syncProgress: 0 }));
+    } catch { /* non-critical */ } finally {
+      setWpSyncing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchWpSyncStatus();
+  }, [fetchWpSyncStatus]);
+
+  useEffect(() => {
+    const status = wpSyncStatus?.syncStatus;
+    if (status !== 'pending' && status !== 'syncing') return;
+    const interval = setInterval(fetchWpSyncStatus, 3000);
+    return () => clearInterval(interval);
+  }, [wpSyncStatus?.syncStatus, fetchWpSyncStatus]);
+
   useEffect(() => {
     if (modalProvider?.key !== 'clickup') return;
     const apiKey = form.credentials?.apiKey || '';
@@ -1047,6 +1097,7 @@ const AgentConnectorsPage = () => {
         },
       });
 
+      let linkedNow = false;
       if (autoLink && selectedAgentId && integration?.id) {
         const agentConfig =
           modalProvider.key === 'clickup' && clickupListId
@@ -1063,10 +1114,19 @@ const AgentConnectorsPage = () => {
           },
         });
         await loadAgentLinks();
+        linkedNow = true;
       }
 
       const integrationsRes = await apiRequest('/integrations');
       setIntegrations(integrationsRes?.integrations || []);
+
+      if (modalProvider.key === 'wordpress' && linkedNow) {
+        // Mantém o modal aberto e dispara o sync explicitamente para que o
+        // usuário veja a confirmação de indexação antes de fechar.
+        await triggerWpSync();
+        return;
+      }
+
       closeModal();
     } catch (err) {
       setFormError(err?.message || 'Erro ao conectar integração.');
@@ -1455,6 +1515,88 @@ const AgentConnectorsPage = () => {
                             Vincular ao funcionário
                           </Button>
                         )}
+                        {linked && integration.providerKey === 'wordpress' && (
+                          <div style={{ fontSize: 11 }}>
+                            {(wpSyncStatus?.syncStatus === 'pending' || wpSyncStatus?.syncStatus === 'syncing') && (
+                              <div>
+                                <div className="d-flex align-items-center gap-2 mb-1">
+                                  <Spinner animation="border" style={{ width: 11, height: 11, borderWidth: 2 }} />
+                                  <span style={{ color: '#21759B' }}>
+                                    {wpSyncStatus.syncStatus === 'pending'
+                                      ? 'Aguardando na fila...'
+                                      : `Indexando... ${wpSyncStatus.syncProgress || 0}%${
+                                          wpSyncStatus.totalCount
+                                            ? ` (${wpSyncStatus.indexedCount || 0}/${wpSyncStatus.totalCount})`
+                                            : ''
+                                        }`}
+                                  </span>
+                                </div>
+                                {wpSyncStatus.syncStatus === 'syncing' && (
+                                  <>
+                                    <div className="progress" style={{ height: 3 }}>
+                                      <div
+                                        className="progress-bar"
+                                        role="progressbar"
+                                        style={{ width: `${wpSyncStatus.syncProgress || 0}%`, background: '#21759B' }}
+                                      />
+                                    </div>
+                                    <div className="text-muted mt-1">
+                                      Custo estimado: {formatCostUsd(wpSyncStatus.indexingCostUsd)}
+                                    </div>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                            {wpSyncStatus?.syncStatus === 'done' && (
+                              <div className="d-flex align-items-center justify-content-between">
+                                <span style={{ color: '#198754' }}>
+                                  <CheckCircle size={11} className="me-1" />
+                                  {wpSyncStatus.indexedCount || 0} imóveis • {formatTimeAgo(wpSyncStatus.lastSyncAt)} •{' '}
+                                  {formatCostUsd(wpSyncStatus.indexingCostUsd)}
+                                </span>
+                                <Button
+                                  variant="link"
+                                  size="sm"
+                                  className="p-0 text-muted"
+                                  style={{ fontSize: 11, lineHeight: 1 }}
+                                  onClick={triggerWpSync}
+                                  disabled={wpSyncing}
+                                  title="Sincronizar agora"
+                                >
+                                  <RefreshCw size={11} />
+                                </Button>
+                              </div>
+                            )}
+                            {wpSyncStatus?.syncStatus === 'error' && (
+                              <div className="d-flex align-items-center justify-content-between">
+                                <span className="text-danger">Erro ao sincronizar</span>
+                                <Button
+                                  variant="link"
+                                  size="sm"
+                                  className="p-0"
+                                  style={{ fontSize: 11, color: '#21759B', lineHeight: 1 }}
+                                  onClick={triggerWpSync}
+                                  disabled={wpSyncing}
+                                >
+                                  Tentar novamente
+                                </Button>
+                              </div>
+                            )}
+                            {(!wpSyncStatus || wpSyncStatus.syncStatus === 'idle' || wpSyncStatus.syncStatus === 'not_configured') && (
+                              <Button
+                                variant="link"
+                                size="sm"
+                                className="p-0"
+                                style={{ fontSize: 11, color: '#21759B', lineHeight: 1 }}
+                                onClick={triggerWpSync}
+                                disabled={wpSyncing}
+                              >
+                                <RefreshCw size={11} className="me-1" />
+                                Sincronizar agora
+                              </Button>
+                            )}
+                          </div>
+                        )}
                       </div>
                     </Col>
                   );
@@ -1590,6 +1732,111 @@ const AgentConnectorsPage = () => {
                       form={form}
                       updateForm={updateForm}
                     />
+
+                    {modalProvider.key === 'wordpress' && modalIsConnected && (
+                      <div
+                        className="rounded-3 p-3 mb-3"
+                        style={{ background: 'var(--bs-tertiary-bg)', border: '1px solid var(--bs-border-color)' }}
+                      >
+                        <div className="d-flex align-items-center justify-content-between mb-1">
+                          <span className="fw-semibold" style={{ fontSize: 13 }}>Status da indexação</span>
+                          {wpSyncStatus?.syncStatus === 'done' && (
+                            <Button
+                              variant="link"
+                              size="sm"
+                              className="p-0"
+                              style={{ fontSize: 12 }}
+                              onClick={triggerWpSync}
+                              disabled={wpSyncing}
+                            >
+                              <RefreshCw size={12} className="me-1" />
+                              Sincronizar agora
+                            </Button>
+                          )}
+                        </div>
+
+                        {!linkedProviderKeys.has('wordpress') ? (
+                          <p className="text-muted mb-0" style={{ fontSize: 12 }}>
+                            Vincule este conector a um funcionário (opção abaixo) para sincronizar os imóveis.
+                          </p>
+                        ) : wpSyncStatus?.syncStatus === 'pending' || wpSyncStatus?.syncStatus === 'syncing' ? (
+                          <div>
+                            <div className="d-flex align-items-center gap-2 mb-2">
+                              <Spinner animation="border" size="sm" />
+                              <span style={{ fontSize: 13 }}>
+                                {wpSyncStatus.syncStatus === 'pending'
+                                  ? 'Aguardando na fila...'
+                                  : `Indexando imóveis... ${wpSyncStatus.syncProgress || 0}%${
+                                      wpSyncStatus.totalCount
+                                        ? ` (${wpSyncStatus.indexedCount || 0}/${wpSyncStatus.totalCount})`
+                                        : ''
+                                    }`}
+                              </span>
+                            </div>
+                            {wpSyncStatus.syncStatus === 'syncing' && (
+                              <>
+                                <div className="progress mb-2" style={{ height: 6 }}>
+                                  <div
+                                    className="progress-bar"
+                                    role="progressbar"
+                                    style={{ width: `${wpSyncStatus.syncProgress || 0}%`, background: '#21759B' }}
+                                  />
+                                </div>
+                                <p className="text-muted mb-0" style={{ fontSize: 12 }}>
+                                  Custo estimado da indexação: {formatCostUsd(wpSyncStatus.indexingCostUsd)}
+                                </p>
+                              </>
+                            )}
+                          </div>
+                        ) : wpSyncStatus?.syncStatus === 'done' ? (
+                          <div>
+                            <div className="text-success d-flex align-items-center gap-2" style={{ fontSize: 13 }}>
+                              <CheckCircle size={14} />
+                              <span>
+                                <strong>{wpSyncStatus.indexedCount || 0}</strong> imóveis indexados — última sync{' '}
+                                {formatTimeAgo(wpSyncStatus.lastSyncAt)}
+                              </span>
+                            </div>
+                            <p className="text-muted mb-0 mt-1" style={{ fontSize: 12 }}>
+                              Custo estimado da indexação: {formatCostUsd(wpSyncStatus.indexingCostUsd)}
+                            </p>
+                          </div>
+                        ) : wpSyncStatus?.syncStatus === 'error' ? (
+                          <div className="d-flex align-items-center justify-content-between" style={{ fontSize: 13 }}>
+                            <span className="text-danger">
+                              Erro ao sincronizar{wpSyncStatus.lastSyncError ? `: ${wpSyncStatus.lastSyncError}` : '.'}
+                            </span>
+                            <Button
+                              variant="link"
+                              size="sm"
+                              className="p-0 text-danger"
+                              style={{ fontSize: 12 }}
+                              onClick={triggerWpSync}
+                              disabled={wpSyncing}
+                            >
+                              Tentar novamente
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="d-flex align-items-center justify-content-between">
+                            <span className="text-muted" style={{ fontSize: 12 }}>Ainda não sincronizado.</span>
+                            <Button
+                              variant="outline-primary"
+                              size="sm"
+                              onClick={triggerWpSync}
+                              disabled={wpSyncing}
+                            >
+                              {wpSyncing ? (
+                                <Spinner animation="border" size="sm" className="me-1" />
+                              ) : (
+                                <RefreshCw size={12} className="me-1" />
+                              )}
+                              Sincronizar agora
+                            </Button>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {modalProvider.key === 'email' && (
                       <div className="mb-3">
@@ -1776,7 +2023,7 @@ const AgentConnectorsPage = () => {
               </Modal.Body>
               <Modal.Footer className="border-top-0">
                 <Button variant="light" onClick={closeModal} disabled={saving}>
-                  Cancelar
+                  {modalProvider?.key === 'wordpress' && modalIsConnected ? 'Fechar' : 'Cancelar'}
                 </Button>
                 {isOAuth(modalProvider?.key) && modalIsConnected && selectedAgentId && !linkedProviderKeys.has(modalProvider.key) && (
                   <Button

@@ -10,6 +10,7 @@ import {
 import { apiRequest } from '@/lib/api/client';
 import AgentsSidebar from '../AgentsSidebar';
 import { useColorMode } from '@/hooks/useColorMode';
+import MonitoringBody from '@/app/(apps layout)/apps/monitoring/MonitoringBody';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -957,68 +958,8 @@ function EvalsTab({ agent, colors }) {
   );
 }
 
-function AuditoriaTab({ agent, colors }) {
-  const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    apiRequest(`/audit/logs?agentId=${agent.id}&limit=50`)
-      .then(r => setLogs(r?.data?.logs || []))
-      .catch(() => setLogs([]))
-      .finally(() => setLoading(false));
-  }, [agent.id]);
-
-  const levelColor = { error: '#ef4444', warn: '#f59e0b', info: '#3b82f6' };
-  const levelLabel = { error: 'erro', warn: 'aviso', info: 'info' };
-
-  return (
-    <div style={{ maxWidth: 860 }}>
-      {loading ? (
-        <div style={{ color: colors.textMuted, fontSize: 13 }}>Carregando logs…</div>
-      ) : logs.length === 0 ? (
-        <div style={{ color: colors.textMuted, fontSize: 13, textAlign: 'center', padding: '32px 0' }}>Nenhum log encontrado para este agente.</div>
-      ) : (
-        logs.map((log, i) => {
-          const lv = log.level || 'info';
-          const lc = levelColor[lv] || levelColor.info;
-          const date = log.createdAt || log.timestamp;
-          const meta = log.metadata || {};
-          return (
-            <div key={i} style={{ background: colors.cardBg, border: `1px solid ${colors.border}`, borderRadius: 10, padding: '12px 14px', marginBottom: 8 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: `${lc}18`, color: lc }}>
-                    {levelLabel[lv] || lv}
-                  </span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: colors.textPrimary }}>{log.message || log.action || '—'}</span>
-                </div>
-                <span style={{ fontSize: 11, color: colors.textMuted, flexShrink: 0 }}>
-                  {date ? new Date(date).toLocaleString('pt-BR') : '—'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-                {meta.latencyMs != null && (
-                  <span style={{ fontSize: 11, color: colors.textMuted }}>⏱ {meta.latencyMs}ms</span>
-                )}
-                {meta.model && (
-                  <span style={{ fontSize: 11, color: colors.textMuted }}>🤖 {meta.model}</span>
-                )}
-                {meta.channel && (
-                  <span style={{ fontSize: 11, color: colors.textMuted }}>📡 {meta.channel}</span>
-                )}
-                {log.userEmail && (
-                  <span style={{ fontSize: 11, color: colors.textMuted }}>👤 {log.userEmail}</span>
-                )}
-                {log.error?.message && (
-                  <span style={{ fontSize: 11, color: '#ef4444' }}>⚠ {log.error.message}</span>
-                )}
-              </div>
-            </div>
-          );
-        })
-      )}
-    </div>
-  );
+function AuditoriaTab({ agent }) {
+  return <MonitoringBody fixedAgentId={agent.id} embedded />;
 }
 
 // ─── Main Page ─────────────────────────────────────────────────────────────────
@@ -1133,7 +1074,7 @@ export default function AgentDetailPage() {
                   {activeTab === 'rotinas'     && <RotinasTab agent={agent} colors={colors} />}
                   {activeTab === 'memoria'     && <MemoriaTab agent={agent} colors={colors} />}
                   {activeTab === 'evals'       && <EvalsTab agent={agent} colors={colors} />}
-                  {activeTab === 'auditoria'   && <AuditoriaTab agent={agent} colors={colors} />}
+                  {activeTab === 'auditoria'   && <AuditoriaTab agent={agent} />}
                 </div>
               </>
             )}

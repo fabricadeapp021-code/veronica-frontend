@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import {
   Button,
   Card,
@@ -24,10 +24,13 @@ import {
   AlertTriangle,
   XCircle,
   Download,
+  Cpu,
+  DollarSign,
 } from 'react-feather';
 import SimpleBar from 'simplebar-react';
 import HkDataTable from '@/components/@hk-data-table';
 import { listAuditLogs, getAuditStats, getAuditLogById } from '@/lib/api/services/audit';
+import { getGatewayUsageCost } from '@/lib/api/services/openclaw-gateway';
 import { listUsers } from '@/lib/api/services/users';
 import { useAuth } from '@/lib/auth/AuthProvider';
 
@@ -35,17 +38,24 @@ const DEFAULT_FILTERS = {
   searchTerm: '',
   level: '',
   context: '',
+  action: '',
   userId: '',
   startDate: '',
   endDate: '',
 };
 
-const MonitoringBody = ({ bindActions }) => {
+/**
+ * fixedAgentId: quando definido, todos os logs/estatísticas ficam travados nesse
+ * agente (usado pela aba "Auditoria" dentro do detalhe do agente).
+ * embedded: remove o wrapper de página inteira quando renderizado dentro de uma aba.
+ */
+const MonitoringBody = ({ bindActions, fixedAgentId, embedded = false }) => {
   const { user } = useAuth();
   const isEmployee = user?.role === 'employee';
 
   const [logs, setLogs] = useState([]);
   const [stats, setStats] = useState(null);
+  const [gatewayUsage, setGatewayUsage] = useState(null);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -54,6 +64,7 @@ const MonitoringBody = ({ bindActions }) => {
   const [searchTerm, setSearchTerm] = useState(DEFAULT_FILTERS.searchTerm);
   const [levelFilter, setLevelFilter] = useState(DEFAULT_FILTERS.level);
   const [contextFilter, setContextFilter] = useState(DEFAULT_FILTERS.context);
+  const [actionFilter, setActionFilter] = useState(DEFAULT_FILTERS.action);
   const [userIdFilter, setUserIdFilter] = useState(DEFAULT_FILTERS.userId);
   const [startDate, setStartDate] = useState(DEFAULT_FILTERS.startDate);
   const [endDate, setEndDate] = useState(DEFAULT_FILTERS.endDate);
@@ -97,9 +108,11 @@ const MonitoringBody = ({ bindActions }) => {
           search: appliedFilters.searchTerm || undefined,
           level: appliedFilters.level || undefined,
           context: appliedFilters.context || undefined,
+          action: appliedFilters.action || undefined,
           userId: appliedFilters.userId || undefined,
           startDate: appliedFilters.startDate || undefined,
           endDate: appliedFilters.endDate || undefined,
+          agentId: fixedAgentId || undefined,
         });
 
         if (response.success && response.data) {
@@ -121,7 +134,7 @@ const MonitoringBody = ({ bindActions }) => {
         setRefreshing(false);
       }
     },
-    [appliedFilters, pagination.page, pagination.limit],
+    [appliedFilters, pagination.page, pagination.limit, fixedAgentId],
   );
 
   const loadStats = useCallback(async () => {
@@ -129,6 +142,7 @@ const MonitoringBody = ({ bindActions }) => {
       const response = await getAuditStats({
         startDate: appliedFilters.startDate || undefined,
         endDate: appliedFilters.endDate || undefined,
+        agentId: fixedAgentId || undefined,
       });
 
       if (response.success && response.data) {
@@ -137,7 +151,17 @@ const MonitoringBody = ({ bindActions }) => {
     } catch (err) {
       console.error('Erro ao carregar estatísticas:', err);
     }
-  }, [appliedFilters.startDate, appliedFilters.endDate]);
+  }, [appliedFilters.startDate, appliedFilters.endDate, fixedAgentId]);
+
+  const loadGatewayUsage = useCallback(async () => {
+    try {
+      const response = await getGatewayUsageCost({ agentId: fixedAgentId || undefined });
+      setGatewayUsage(response || null);
+    } catch (err) {
+      // Endpoint opcional — gateway pode não suportar gateway.usage-cost
+      setGatewayUsage(null);
+    }
+  }, [fixedAgentId]);
 
   const loadLogDetail = async (logId) => {
     try {
@@ -161,17 +185,19 @@ const MonitoringBody = ({ bindActions }) => {
   useEffect(() => {
     loadLogs();
     loadStats();
-  }, [loadLogs, loadStats]);
+    loadGatewayUsage();
+  }, [loadLogs, loadStats, loadGatewayUsage]);
 
   const handleRefresh = useCallback(() => {
     loadLogs(true);
     loadStats();
-  }, [loadLogs, loadStats]);
+    loadGatewayUsage();
+  }, [loadLogs, loadStats, loadGatewayUsage]);
 
   const handleExportLogs = useCallback(() => {
     if (!logs.length) return;
 
-    const headers = ['Timestamp', 'Nivel', 'Mensagem', 'Contexto', 'Usuario', 'Acao'];
+    const headers = ['Timestamp', 'Nivel', 'Mensagem', 'Contexto', 'Usuario', 'Acao', 'Tool', 'TotalTokens', 'CustoEstimadoUSD'];
     const rows = logs.map((log) => [
       log.timestamp || '',
       log.level || '',
@@ -179,6 +205,9 @@ const MonitoringBody = ({ bindActions }) => {
       log.context || '',
       log.userEmail || '',
       log.action || '',
+      log.tool || '',
+      log.tokenUsage?.totalTokens ?? '',
+      log.cost?.amount ?? '',
     ]);
 
     const csvContent = [headers, ...rows]
@@ -284,6 +313,35 @@ const MonitoringBody = ({ bindActions }) => {
       ),
     },
     {
+      title: 'Tool / Modelo',
+      accessor: 'tool',
+      sort: false,
+      cellFormatter: (value, row) => {
+        const label = value || row.metadata?.model;
+        return label ? (
+          <Badge bg="light" text="dark">{label}</Badge>
+        ) : (
+          <span className="text-muted">-</span>
+        );
+      },
+    },
+    {
+      title: 'Tokens',
+      accessor: 'tokenUsage',
+      sort: false,
+      cellFormatter: (value, row) => {
+        if (!value?.totalTokens) return <span className="text-muted">-</span>;
+        return (
+          <span className="text-nowrap">
+            {value.totalTokens.toLocaleString('pt-BR')}
+            {row.cost?.amount != null && (
+              <small className="text-muted d-block">${row.cost.amount.toFixed(4)} (est.)</small>
+            )}
+          </span>
+        );
+      },
+    },
+    {
       title: 'Ações',
       accessor: '_id',
       sort: false,
@@ -301,6 +359,7 @@ const MonitoringBody = ({ bindActions }) => {
       searchTerm: searchTerm.trim(),
       level: levelFilter,
       context: contextFilter,
+      action: actionFilter,
       userId: userIdFilter,
       startDate,
       endDate,
@@ -311,6 +370,7 @@ const MonitoringBody = ({ bindActions }) => {
     setSearchTerm(DEFAULT_FILTERS.searchTerm);
     setLevelFilter(DEFAULT_FILTERS.level);
     setContextFilter(DEFAULT_FILTERS.context);
+    setActionFilter(DEFAULT_FILTERS.action);
     setUserIdFilter(DEFAULT_FILTERS.userId);
     setStartDate(DEFAULT_FILTERS.startDate);
     setEndDate(DEFAULT_FILTERS.endDate);
@@ -321,6 +381,11 @@ const MonitoringBody = ({ bindActions }) => {
   const uniqueContexts = useMemo(() => {
     const contexts = logs.map((log) => log.context).filter(Boolean);
     return [...new Set(contexts)];
+  }, [logs]);
+
+  const uniqueActions = useMemo(() => {
+    const actions = logs.map((log) => log.action).filter(Boolean);
+    return [...new Set(actions)];
   }, [logs]);
 
   const visiblePages = useMemo(() => {
@@ -342,10 +407,13 @@ const MonitoringBody = ({ bindActions }) => {
     );
   }
 
+  const ScrollWrapper = embedded ? Fragment : SimpleBar;
+  const scrollWrapperProps = embedded ? {} : { className: 'nicescroll-bar' };
+
   return (
-    <div className="fm-body">
-      <SimpleBar className="nicescroll-bar">
-        <div className="container-fluid px-4 py-4">
+    <div className={embedded ? '' : 'fm-body'}>
+      <ScrollWrapper {...scrollWrapperProps}>
+        <div className={embedded ? '' : 'container-fluid px-4 py-4'}>
           <div className="mb-4 d-flex gap-2">
             <Button
               variant="primary"
@@ -438,6 +506,81 @@ const MonitoringBody = ({ bindActions }) => {
             </Row>
           )}
 
+          {stats?.tokenUsage && (
+            <Row className="mb-4">
+              <Col lg={3} md={6} className="mb-3">
+                <Card className="card-border">
+                  <Card.Body>
+                    <div className="d-flex justify-content-between align-items-center">
+                      <div>
+                        <span className="text-muted d-block mb-1">Tokens (logs)</span>
+                        <h3 className="mb-0">{(stats.tokenUsage.totalTokens || 0).toLocaleString('pt-BR')}</h3>
+                      </div>
+                      <div className="avatar avatar-icon avatar-lg avatar-soft-info avatar-rounded">
+                        <Cpu />
+                      </div>
+                    </div>
+                  </Card.Body>
+                </Card>
+              </Col>
+              <Col lg={3} md={6} className="mb-3">
+                <Card className="card-border">
+                  <Card.Body>
+                    <div className="d-flex justify-content-between align-items-center">
+                      <div>
+                        <span className="text-muted d-block mb-1">Custo estimado</span>
+                        <h3 className="mb-0">${(stats.tokenUsage.estimatedCostUsd || 0).toFixed(4)}</h3>
+                        <small className="text-muted">tabela de preço estimada</small>
+                      </div>
+                      <div className="avatar avatar-icon avatar-lg avatar-soft-success avatar-rounded">
+                        <DollarSign />
+                      </div>
+                    </div>
+                  </Card.Body>
+                </Card>
+              </Col>
+              {gatewayUsage && (
+                <>
+                  <Col lg={3} md={6} className="mb-3">
+                    <Card className="card-border">
+                      <Card.Body>
+                        <div className="d-flex justify-content-between align-items-center">
+                          <div>
+                            <span className="text-muted d-block mb-1">Tokens (gateway)</span>
+                            <h3 className="mb-0">{(gatewayUsage.totalTokens || 0).toLocaleString('pt-BR')}</h3>
+                            <small className="text-muted">direto do OpenClaw</small>
+                          </div>
+                          <div className="avatar avatar-icon avatar-lg avatar-soft-info avatar-rounded">
+                            <Cpu />
+                          </div>
+                        </div>
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                  <Col lg={3} md={6} className="mb-3">
+                    <Card className="card-border">
+                      <Card.Body>
+                        <div className="d-flex justify-content-between align-items-center">
+                          <div>
+                            <span className="text-muted d-block mb-1">Custo (gateway)</span>
+                            <h3 className="mb-0">
+                              {gatewayUsage.currency === 'USD' ? '$' : ''}
+                              {(gatewayUsage.totalCost || 0).toFixed(4)}
+                            </h3>
+                            <small className="text-muted">direto do OpenClaw</small>
+                          </div>
+                          <div className="avatar avatar-icon avatar-lg avatar-soft-success avatar-rounded">
+                            <DollarSign />
+                          </div>
+                        </div>
+                      </Card.Body>
+                    </Card>
+                  </Col>
+                </>
+              )}
+            </Row>
+          )}
+
           <Card className="card-border mb-4">
             <Card.Body>
               <Row className="gx-3">
@@ -508,6 +651,17 @@ const MonitoringBody = ({ bindActions }) => {
 
               <Row className="gx-3">
                 <Col lg={3} className="mb-3">
+                  <Form.Label>Ação</Form.Label>
+                  <Form.Select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)}>
+                    <option value="">Todas</option>
+                    {uniqueActions.map((act) => (
+                      <option key={act} value={act}>
+                        {act}
+                      </option>
+                    ))}
+                  </Form.Select>
+                </Col>
+                <Col lg={3} className="mb-3">
                   <Form.Label>Data Início</Form.Label>
                   <Form.Control type="datetime-local" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
                 </Col>
@@ -572,7 +726,7 @@ const MonitoringBody = ({ bindActions }) => {
             )}
           </Card>
         </div>
-      </SimpleBar>
+      </ScrollWrapper>
 
       <Modal show={showModal} onHide={() => setShowModal(false)} size="lg" centered>
         <Modal.Header closeButton>
@@ -611,6 +765,52 @@ const MonitoringBody = ({ bindActions }) => {
                   </div>
                 </div>
               </div>
+              {(selectedLog.traceId || selectedLog.conversationId) && (
+                <div className="mb-3">
+                  <strong>Rastreamento:</strong>
+                  <div className="mt-2">
+                    {selectedLog.traceId && (
+                      <div>
+                        <strong>Trace ID:</strong> <code>{selectedLog.traceId}</code>
+                      </div>
+                    )}
+                    {selectedLog.conversationId && (
+                      <div>
+                        <strong>Conversation ID:</strong> <code>{selectedLog.conversationId}</code>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+              {selectedLog.tool && (
+                <div className="mb-3">
+                  <strong>Tool:</strong>{' '}
+                  <Badge bg="light" text="dark">
+                    {selectedLog.tool}
+                  </Badge>
+                </div>
+              )}
+              {selectedLog.tokenUsage && (
+                <div className="mb-3">
+                  <strong>Tokens:</strong>
+                  <div className="mt-2 p-3 bg-light rounded">
+                    <div>
+                      <strong>Prompt:</strong> {selectedLog.tokenUsage.promptTokens ?? '-'}
+                    </div>
+                    <div>
+                      <strong>Completion:</strong> {selectedLog.tokenUsage.completionTokens ?? '-'}
+                    </div>
+                    <div>
+                      <strong>Total:</strong> {selectedLog.tokenUsage.totalTokens ?? '-'}
+                    </div>
+                    {selectedLog.cost && (
+                      <div>
+                        <strong>Custo estimado:</strong> ${selectedLog.cost.amount.toFixed(6)} {selectedLog.cost.currency}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
               {selectedLog.http && (
                 <div className="mb-3">
                   <strong>HTTP:</strong>
