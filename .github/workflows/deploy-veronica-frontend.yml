@@ -1,0 +1,36 @@
+name: Deploy Veronica Frontend → Caprover
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy → Veronica Frontend (Caprover)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Empacotar aplicação
+        run: |
+          tar -czf /tmp/deploy.tar \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='.github' \
+            --exclude='deploy.tar' \
+            .
+          mv /tmp/deploy.tar deploy.tar
+
+      - name: Verificar pacote
+        run: ls -lh deploy.tar
+
+      - name: Deploy para Caprover
+        uses: caprover/deploy-from-github@v1.1.2
+        with:
+          server: ${{ secrets.CAPROVER_SERVER }}
+          app: ${{ secrets.CAPROVER_APP }}
+          token: ${{ secrets.CAPROVER_APP_TOKEN }}
