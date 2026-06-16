@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Alert, Badge, Button, Card, Col, Dropdown, Form, InputGroup, Modal, Row, Spinner } from 'react-bootstrap';
 import SimpleBar from 'simplebar-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   BookOpen,
   Briefcase,
@@ -771,7 +773,26 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
                               }}
                             />
                           )}
-                          {msg.content}
+                          {msg.content && (
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={{
+                                img: ({ node, alt, ...props }) => (
+                                  <img
+                                    {...props}
+                                    alt={alt || ''}
+                                    style={{ maxWidth: '100%', borderRadius: '8px', display: 'block', margin: '0.4rem 0' }}
+                                  />
+                                ),
+                                p: ({ node, ...props }) => <p style={{ marginBottom: '0.5rem' }} {...props} />,
+                                a: ({ node, ...props }) => (
+                                  <a {...props} target="_blank" rel="noopener noreferrer" />
+                                ),
+                              }}
+                            >
+                              {msg.content}
+                            </ReactMarkdown>
+                          )}
                         </>
                       )}
                     </div>

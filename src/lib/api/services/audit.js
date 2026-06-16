@@ -11,11 +11,14 @@ export async function listAuditLogs(filters = {}) {
   if (filters.level) params.append('level', filters.level);
   if (filters.userId) params.append('userId', filters.userId);
   if (filters.context) params.append('context', filters.context);
+  if (filters.agentId) params.append('agentId', filters.agentId);
+  if (filters.action) params.append('action', filters.action);
+  if (filters.tool) params.append('tool', filters.tool);
   if (filters.search) params.append('search', filters.search);
   if (filters.statusCode) params.append('statusCode', filters.statusCode);
   if (filters.page) params.append('page', filters.page);
   if (filters.limit) params.append('limit', filters.limit);
-  
+
   const query = params.toString();
   return await apiRequest(`/audit/logs${query ? `?${query}` : ''}`, {
     method: 'GET',
@@ -39,7 +42,9 @@ export async function getAuditStats(filters = {}) {
   
   if (filters.startDate) params.append('startDate', filters.startDate);
   if (filters.endDate) params.append('endDate', filters.endDate);
-  
+  if (filters.agentId) params.append('agentId', filters.agentId);
+  if (filters.action) params.append('action', filters.action);
+
   const query = params.toString();
   return await apiRequest(`/audit/stats${query ? `?${query}` : ''}`, {
     method: 'GET',
