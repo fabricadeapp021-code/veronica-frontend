@@ -1,58 +1,45 @@
 import { apiRequest } from '@/lib/api/client';
 
-// ─── Saldo ────────────────────────────────────────────────────────────────────
+// ─── Resumo da assinatura de vagas de agente ─────────────────────────────────
 
-export async function getBillingBalance() {
-  return apiRequest('/billing/balance', { method: 'GET' });
+export async function getAgentBillingSummary() {
+  return apiRequest('/billing/summary', { method: 'GET' });
 }
 
-// ─── Planos ───────────────────────────────────────────────────────────────────
+// ─── Catálogo de preços por quantidade de agentes ────────────────────────────
 
-export async function getBillingPlans() {
+export async function getAgentBillingPlans() {
   return apiRequest('/billing/plans', { method: 'GET' });
 }
 
-// ─── Assinatura ───────────────────────────────────────────────────────────────
+// ─── Cancelamento ─────────────────────────────────────────────────────────────
 
-export async function getBillingSubscription() {
-  return apiRequest('/billing/subscription', { method: 'GET' });
-}
-
-export async function cancelBillingSubscription(reason) {
+export async function cancelAgentSubscription(reason) {
   return apiRequest('/billing/subscription', {
     method: 'DELETE',
     body: { reason },
   });
 }
 
-// ─── Checkout de plano ────────────────────────────────────────────────────────
+// ─── Checkout de vagas de agente (1 a 4 — self-service) ──────────────────────
 
-export async function subscribePlan(payload) {
-  return apiRequest('/billing/subscribe', {
+export async function createAgentCheckout(payload) {
+  return apiRequest('/billing/checkout', {
     method: 'POST',
     body: payload,
   });
 }
 
-// ─── Checkout avulso de créditos ─────────────────────────────────────────────
+// ─── Histórico de pagamentos ──────────────────────────────────────────────────
 
-export async function createCreditsCheckout(payload) {
-  return apiRequest('/payments/checkout', {
-    method: 'POST',
-    body: payload,
-  });
-}
-
-// ─── Histórico de transações ─────────────────────────────────────────────────
-
-export async function getCreditsHistory({ page = 1, limit = 15 } = {}) {
-  return apiRequest(`/credits/history?page=${page}&limit=${limit}`, { method: 'GET' });
+export async function listAgentBillingOrders({ page = 1, limit = 20 } = {}) {
+  return apiRequest(`/billing/orders?page=${page}&limit=${limit}`, { method: 'GET' });
 }
 
 // ─── Status de um pagamento ───────────────────────────────────────────────────
 
 export async function getOrderStatus(orderId) {
-  return apiRequest(`/payments/orders/${orderId}`, { method: 'GET' });
+  return apiRequest(`/billing/orders/${orderId}`, { method: 'GET' });
 }
 
 // ─── Plano TMS (Pulse / Orbit / Titan) ───────────────────────────────────────

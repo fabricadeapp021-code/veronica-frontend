@@ -13,7 +13,6 @@ import {
   getTraccarDevices, getPositions, getMaintenances, todayRange,
 } from '@/lib/api/services/fleet';
 import { getFinancialSummary } from '@/lib/api/services/financial';
-import { getBillingBalance } from '@/lib/api/services/billing';
 import { fleetAiGetPendingActions } from '@/lib/api/services/fleet-ai';
 import { useColorMode } from '@/hooks/useColorMode';
 import OnboardingWizard from './OnboardingWizard';
@@ -93,7 +92,6 @@ export default function FleetDashboardBody() {
   const [events,       setEvents]       = useState([]);
   const [maintenances, setMaintenances] = useState([]);
   const [financials,   setFinancials]   = useState(null);
-  const [credits,      setCredits]      = useState(null);
   const [loading,      setLoading]      = useState(true);
   const [lastFetch,    setLastFetch]    = useState(null);
   const [showOnboard,  setShowOnboard]  = useState(false);
@@ -113,7 +111,7 @@ export default function FleetDashboardBody() {
     setLoading(true);
     const { from, to } = todayRange();
     try {
-      const [s, v, td, pos, t, e, m, fin, bal] = await Promise.allSettled([
+      const [s, v, td, pos, t, e, m, fin] = await Promise.allSettled([
         getFleetDashboard(),
         getDevices({ all: true }),
         getTraccarDevices(),
@@ -122,7 +120,6 @@ export default function FleetDashboardBody() {
         getEvents({ from, to }),
         getMaintenances(),
         getFinancialSummary().catch(() => null),
-        getBillingBalance().catch(() => null),
       ]);
       if (s.status   === 'fulfilled' && s.value)                setStats(s.value);
       if (v.status   === 'fulfilled' && Array.isArray(v.value)) setVehicles(v.value);
@@ -132,7 +129,6 @@ export default function FleetDashboardBody() {
       if (e.status   === 'fulfilled' && Array.isArray(e.value))  setEvents(e.value);
       if (m.status   === 'fulfilled' && Array.isArray(m.value))  setMaintenances(m.value);
       if (fin.status === 'fulfilled' && fin.value)              setFinancials(fin.value);
-      if (bal.status === 'fulfilled' && bal.value)              setCredits(bal.value?.data?.balance ?? null);
       setLastFetch(new Date());
 
       const dismissed = sessionStorage.getItem('onboarding_dismissed');

@@ -2,8 +2,8 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import SimpleBar from 'simplebar-react';
-import { getBillingBalance } from '@/lib/api/services/billing';
-import { AlignLeft, Bell, Calendar, CheckSquare, Clock, CreditCard, Inbox, Moon, Plus, Search, Settings, Sun, Tag, Zap, Layers } from 'react-feather';
+import { getAgentBillingSummary } from '@/lib/api/services/billing';
+import { AlignLeft, Bell, Calendar, CheckSquare, Clock, CreditCard, Inbox, Moon, Plus, Search, Settings, Sun, Tag, Layers } from 'react-feather';
 import { CreditCard as TablerCreditCard, MessageCircle } from 'tabler-icons-react';
 import { Button, Container, Dropdown, Form, InputGroup, Nav, Navbar, Spinner } from 'react-bootstrap';
 import classNames from 'classnames';
@@ -24,10 +24,10 @@ import avatar4 from '@/assets/img/avatar4.jpg';
 import avatar10 from '@/assets/img/avatar10.jpg';
 import avatar12 from '@/assets/img/avatar12.jpg';
 
-const normalizeCreditBalance = (value) => {
-    const nextValue = Number(value ?? 0);
-    return Number.isFinite(nextValue) ? nextValue : 0;
-};
+const normalizeAgentSummary = (data) => ({
+    agentSlots: Number.isFinite(Number(data?.agentSlots)) ? Number(data.agentSlots) : 0,
+    activeAgentsCount: Number.isFinite(Number(data?.activeAgentsCount)) ? Number(data.activeAgentsCount) : 0,
+});
 
 
 const TopNav = () => {
@@ -35,7 +35,7 @@ const TopNav = () => {
     const { states, dispatch } = useGlobalStateContext();
     const [showDropdown, setShowDropdown] = useState(false);
     const [searchValue, setSearchValue] = useState("")
-    const [creditBalance, setCreditBalance] = useState(0);
+    const [agentSummary, setAgentSummary] = useState({ agentSlots: 0, activeAgentsCount: 0 });
     const [showAiPanel, setShowAiPanel] = useState(false);
     const [wizardCreating, setWizardCreating] = useState(false);
     const router = useRouter();
@@ -47,14 +47,14 @@ const TopNav = () => {
     const isFleet = pathname?.startsWith('/apps/fleet');
 
     useEffect(() => {
-        getBillingBalance()
-            .then(res => setCreditBalance(normalizeCreditBalance(res?.data?.balance)))
-            .catch(() => setCreditBalance(0));
+        getAgentBillingSummary()
+            .then(res => setAgentSummary(normalizeAgentSummary(res?.data)))
+            .catch(() => setAgentSummary({ agentSlots: 0, activeAgentsCount: 0 }));
         // Atualiza a cada 5 minutos
         const t = setInterval(() => {
-            getBillingBalance()
-                .then(res => setCreditBalance(normalizeCreditBalance(res?.data?.balance)))
-                .catch(() => setCreditBalance(currentBalance => currentBalance));
+            getAgentBillingSummary()
+                .then(res => setAgentSummary(normalizeAgentSummary(res?.data)))
+                .catch(() => setAgentSummary(current => current));
         }, 5 * 60 * 1000);
         return () => clearInterval(t);
     }, []);
@@ -560,7 +560,7 @@ const TopNav = () => {
                         </Nav.Item>
                         {(
                             <Nav.Item>
-                                <HkTooltip id="tooltip-credits" placement="bottom" title="Saldo de créditos">
+                                <HkTooltip id="tooltip-agents" placement="bottom" title="Vagas de agente contratadas">
                                     <div
                                         style={{
                                             display: 'inline-flex',
@@ -579,11 +579,10 @@ const TopNav = () => {
                                                 : '0 2px 8px -3px rgba(15,23,42,0.08), 0 1px 2px rgba(15,23,42,0.04)',
                                         }}
                                     >
-                                        <Zap
+                                        <Layers
                                             size={14}
                                             style={{
                                                 color: '#f59e0b',
-                                                fill: '#f59e0b',
                                                 flexShrink: 0,
                                             }}
                                         />
@@ -596,7 +595,7 @@ const TopNav = () => {
                                                 fontVariantNumeric: 'tabular-nums',
                                             }}
                                         >
-                                            {creditBalance.toLocaleString('pt-BR')}
+                                            {agentSummary.activeAgentsCount}/{agentSummary.agentSlots}
                                         </span>
                                         <span
                                             style={{
@@ -606,11 +605,11 @@ const TopNav = () => {
                                                 marginRight: 4,
                                             }}
                                         >
-                                            créditos
+                                            agentes
                                         </span>
                                         <Link
                                             href="/apps/billing"
-                                            aria-label="Adicionar créditos"
+                                            aria-label="Adicionar vagas de agente"
                                             style={{
                                                 width: 17,
                                                 height: 17,

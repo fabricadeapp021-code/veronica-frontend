@@ -562,7 +562,7 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
           top: 0,
           right: 0,
           bottom: 0,
-          width: '440px',
+          width: '640px',
           maxWidth: '100vw',
           background: colors.panelBg,
           zIndex: 1050,
