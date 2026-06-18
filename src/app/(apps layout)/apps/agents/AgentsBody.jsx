@@ -32,6 +32,7 @@ import {
   X,
   Zap,
 } from 'react-feather';
+import { toast } from 'react-toastify';
 import { apiRequest, fetchStream } from '@/lib/api/client';
 import { getAccessToken } from '@/lib/auth/session';
 import { useColorMode } from '@/hooks/useColorMode';
@@ -60,29 +61,51 @@ const KnowledgeTab = ({ agent, colors, isDark }) => {
   const [uploading, setUploading] = useState(false);
   const [uploadErr, setUploadErr] = useState('');
   const fileInputRef = useRef(null);
+  const pollRef = useRef(null);
 
-  const loadFiles = useCallback(async () => {
+  const loadFiles = useCallback(async ({ silent = false } = {}) => {
     try {
-      setLoadingFiles(true);
+      if (!silent) setLoadingFiles(true);
       const res = await apiRequest(`/agents/${agent.id}/knowledge`);
-      setFiles(res?.files || []);
+      const list = res?.files || [];
+      setFiles(list);
+      return list;
     } catch {
       setFiles([]);
+      return [];
     } finally {
-      setLoadingFiles(false);
+      if (!silent) setLoadingFiles(false);
     }
   }, [agent.id]);
 
-  useEffect(() => {
-    loadFiles();
+  // Polling: enquanto existir arquivo PENDING, recarrega a cada 3s.
+  const startPolling = useCallback(() => {
+    if (pollRef.current) return;
+    pollRef.current = setInterval(async () => {
+      const list = await loadFiles({ silent: true });
+      const hasPending = list.some(f => f.status === 'PENDING');
+      if (!hasPending) {
+        clearInterval(pollRef.current);
+        pollRef.current = null;
+      }
+    }, 3000);
   }, [loadFiles]);
+
+  useEffect(() => {
+    loadFiles().then(list => {
+      if (list.some(f => f.status === 'PENDING')) startPolling();
+    });
+    return () => {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    };
+  }, [loadFiles, startPolling]);
 
   const handleUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadErr('');
-    if (file.size > 20 * 1024 * 1024) {
-      setUploadErr('Arquivo muito grande. Maximo 20MB.');
+    if (file.size > 50 * 1024 * 1024) {
+      setUploadErr('Arquivo muito grande. Máximo 50MB.');
       e.target.value = '';
       return;
     }
@@ -101,7 +124,9 @@ const KnowledgeTab = ({ agent, colors, isDark }) => {
         const errData = await resp.json().catch(() => ({}));
         throw new Error(errData?.message || `Erro ${resp.status}`);
       }
+      // Recarrega lista e inicia polling — indexação é async, pode demorar alguns segundos.
       await loadFiles();
+      startPolling();
     } catch (err) {
       setUploadErr(err?.message || 'Falha no upload.');
     } finally {
@@ -122,7 +147,7 @@ const KnowledgeTab = ({ agent, colors, isDark }) => {
   const statusBadge = (status) => {
     const map = {
       INDEXED: { bg: '#d1fae5', color: '#065f46', label: 'Indexado' },
-      PENDING: { bg: '#fef3c7', color: '#92400e', label: 'Pendente' },
+      PENDING: { bg: '#fef3c7', color: '#92400e', label: 'Indexando…' },
       FAILED:  { bg: '#fee2e2', color: '#991b1b', label: 'Falhou' },
     };
     const s = map[status] || { bg: '#e5e7eb', color: '#374151', label: status };
@@ -130,7 +155,17 @@ const KnowledgeTab = ({ agent, colors, isDark }) => {
       <span style={{
         fontSize: '0.70rem', fontWeight: 600, borderRadius: '4px',
         padding: '1px 6px', background: s.bg, color: s.color,
+        display: 'inline-flex', alignItems: 'center', gap: 4,
       }}>
+        {status === 'PENDING' && (
+          <span style={{
+            width: 7, height: 7, borderRadius: '50%',
+            border: `1.5px solid ${s.color}`,
+            borderTopColor: 'transparent',
+            display: 'inline-block',
+            animation: 'spin 0.8s linear infinite',
+          }} />
+        )}
         {s.label}
       </span>
     );
@@ -161,7 +196,7 @@ const KnowledgeTab = ({ agent, colors, isDark }) => {
           <>
             <BookOpen size={22} style={{ marginBottom: '0.4rem', opacity: 0.5 }} />
             <div style={{ fontSize: '0.875rem', fontWeight: 500, color: colors.textPrimary }}>Upload de documento</div>
-            <div style={{ fontSize: '0.76rem' }}>PDF, DOCX, JPEG, PNG, TXT — max 20MB</div>
+            <div style={{ fontSize: '0.76rem' }}>PDF, DOCX, JPEG, PNG, TXT — max 50MB</div>
           </>
         )}
       </div>
@@ -907,6 +942,10 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
             0%, 60%, 100% { transform: translateY(0); opacity: 0.6; }
             30% { transform: translateY(-6px); opacity: 1; }
           }
+          @keyframes spin {
+            from { transform: rotate(0deg); }
+            to   { transform: rotate(360deg); }
+          }
           .session-tabs-bar::-webkit-scrollbar { display: none; }
         `}</style>
       </div>
@@ -918,7 +957,9 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
 const CHANNEL_LABEL = { whatsapp: 'WhatsApp', telegram: 'Telegram', playground: 'Playground' };
 const CHANNEL_VARIANT = { whatsapp: 'success', telegram: 'primary', playground: 'info' };
 
-const AgentAccessModal = ({ agent, onClose }) => {
+const ACCESS_MODE_LABELS = { PUBLIC: 'Público', WHITELIST: 'Whitelist', PRIVATE: 'Privado' };
+
+const AgentAccessModal = ({ agent, onClose, onModeChange }) => {
   const [accessMode, setAccessMode]       = useState(agent.accessMode || 'PUBLIC');
   const [contacts, setContacts]           = useState([]);
   const [total, setTotal]                 = useState(0);
@@ -987,6 +1028,8 @@ const AgentAccessModal = ({ agent, onClose }) => {
         body: { accessMode: mode },
       });
       setAccessMode(mode);
+      onModeChange?.(mode);
+      toast.success(`Visibilidade alterada para ${ACCESS_MODE_LABELS[mode] || mode}`);
     } catch (e) {
       setErr(e?.message || 'Erro ao salvar modo de acesso.');
     } finally {
@@ -1726,7 +1769,13 @@ const AgentsBody = () => {
         <AgentPlaygroundPanel agent={playgroundAgent} onClose={() => setPlaygroundAgent(null)} />
       )}
       {accessAgent && (
-        <AgentAccessModal agent={accessAgent} onClose={() => setAccessAgent(null)} />
+        <AgentAccessModal
+          agent={accessAgent}
+          onClose={() => setAccessAgent(null)}
+          onModeChange={(mode) =>
+            setAgents((prev) => prev.map((a) => a.id === accessAgent.id ? { ...a, accessMode: mode } : a))
+          }
+        />
       )}
       {knowledgeAgent && (
         <AgentKnowledgeModal agent={knowledgeAgent} onClose={() => setKnowledgeAgent(null)} />
@@ -1823,9 +1872,18 @@ const AgentsBody = () => {
                             </Link>
                             <small className="text-muted">{agent.roleTitle}</small>
                           </div>
-                          <Badge bg={agent.status === 'active' ? 'success' : agent.status === 'paused' ? 'warning' : 'secondary'} className="flex-shrink-0">
-                            {statusLabels[agent.status] || agent.status}
-                          </Badge>
+                          <div className="d-flex align-items-center gap-2 flex-shrink-0">
+                            {agent.accessMode === 'PRIVATE' ? (
+                              <UserCheck size={13} className="text-danger" title="Privado — Somente Funcionários" />
+                            ) : agent.accessMode === 'WHITELIST' ? (
+                              <Lock size={13} className="text-warning" title="Whitelist — Somente Contatos Autorizados" />
+                            ) : (
+                              <Shield size={13} className="text-success" title="Público — Qualquer Número Pode Conversar" />
+                            )}
+                            <Badge bg={agent.status === 'active' ? 'success' : agent.status === 'paused' ? 'warning' : 'secondary'}>
+                              {statusLabels[agent.status] || agent.status}
+                            </Badge>
+                          </div>
                         </div>
 
                         {/* Integrações ativas */}
@@ -1860,7 +1918,11 @@ const AgentsBody = () => {
                           <Button variant="outline-secondary" size="sm" onClick={() => setKnowledgeAgent(agent)}>
                             <BookOpen size={13} className="me-1" />Conhecimento
                           </Button>
-                          <Button variant="outline-secondary" size="sm" onClick={() => setAccessAgent(agent)}>
+                          <Button
+                            variant={agent.accessMode === 'PRIVATE' ? 'outline-danger' : agent.accessMode === 'WHITELIST' ? 'outline-warning' : 'outline-secondary'}
+                            size="sm"
+                            onClick={() => setAccessAgent(agent)}
+                          >
                             <Shield size={13} className="me-1" />Acesso
                           </Button>
 
