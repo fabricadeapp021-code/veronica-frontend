@@ -203,7 +203,7 @@ const KnowledgeTab = ({ agent, colors, isDark }) => {
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pdf,.docx,.jpeg,.jpg,.png,.txt"
+        accept=".pdf,.docx,.jpeg,.jpg,.png,.txt,.json"
         style={{ display: 'none' }}
         onChange={handleUpload}
       />
