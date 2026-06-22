@@ -100,6 +100,7 @@ async function refreshAccessToken(retryCount = 0) {
  * @param {boolean} [options.auth=true] envia Authorization Bearer automaticamente
  * @param {boolean} [options.retryAuth=true] tenta refresh token 1x em 401
  * @param {any} [options.body] objeto JS para JSON
+ * @param {number} [options.timeoutMs=15000] timeout da requisição
  */
 export async function apiRequest(path, options = {}) {
   const {
@@ -108,6 +109,7 @@ export async function apiRequest(path, options = {}) {
     body,
     auth = true,
     retryAuth = true,
+    timeoutMs = 15000,
     signal: externalSignal,
     ...rest
   } = options;
@@ -128,7 +130,7 @@ export async function apiRequest(path, options = {}) {
   if (token) h.Authorization = `Bearer ${token}`;
 
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000);
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   // If caller passed its own signal, abort our controller when it fires too
   externalSignal?.addEventListener('abort', () => controller.abort());
 

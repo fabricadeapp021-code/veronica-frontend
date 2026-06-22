@@ -27,6 +27,7 @@ import {
   Link as LinkIcon,
   RefreshCw,
   Search,
+  Trash2,
   Zap,
 } from 'react-feather';
 
@@ -178,6 +179,16 @@ const PROVIDER_HELP_GUIDE = {
       { label: 'Teste no playground', detail: 'No playground do agente, pergunte "Tem apartamentos de 2 quartos disponíveis?" para validar.' },
     ],
     note: 'A API do WordPress deve estar acessível sem autenticação. Sites com plugin de segurança (Wordfence, All In One Security) podem bloquear o /wp-json/. Peça ao admin para liberar o endpoint.',
+  },
+  property_catalog: {
+    title: 'Como importar Catálogo de Imóveis',
+    steps: [
+      { label: 'Prepare o JSON', detail: 'Use um objeto ou uma lista de objetos com campos estruturados de imóvel, como código, título, preços, características e endereço.' },
+      { label: 'Escolha o funcionário IA', detail: 'Selecione o agente que poderá consultar esse catálogo.' },
+      { label: 'Envie o arquivo', detail: 'Selecione o arquivo .json. O sistema salva os imóveis no MongoDB e vincula a base ao agente.' },
+      { label: 'Teste no chat', detail: 'Pergunte por bairro, preço, quartos ou quantidade de imóveis para confirmar a consulta estruturada.' },
+    ],
+    note: 'Esse conector é indicado para catálogos grandes. Ele evita transformar todo o JSON em chunks de RAG e permite contagem exata por filtros.',
   },
   webhook_inbound: {
     title: 'Como usar o Webhook Inbound',
@@ -332,8 +343,6 @@ const Icons = {
     </svg>
   ),
 };
-import { resolveApiBaseUrl } from '@/lib/api/config';
-import { getAccessToken } from '@/lib/auth/session';
 import { apiRequest } from '@/lib/api/client';
 
 const categoryLabels = {
@@ -391,6 +400,7 @@ const providerMeta = {
   webhook:          { BrandComponent: Icons.webhook,        color: '#6b7280' },
   webhook_inbound:  { BrandComponent: Icons.webhook,        color: '#8b5cf6' },
   wordpress:        { BrandComponent: Icons.wordpress,      color: '#21759B' },
+  property_catalog: { BrandComponent: Icons.documents,      color: '#14b8a6' },
 };
 
 const defaultMeta = { BrandComponent: null, color: '#6b7280' };
@@ -501,6 +511,11 @@ const defaultFormByProvider = {
   wordpress: {
     name: 'WordPress Imóveis',
     config: { provider: 'wordpress', siteUrl: '', syncIntervalHours: 6, perPage: 50, cptSlug: '' },
+    credentials: {},
+  },
+  property_catalog: {
+    name: 'Catálogo de Imóveis',
+    config: { provider: 'property_catalog', catalogName: '' },
     credentials: {},
   },
 };
@@ -703,6 +718,16 @@ const ProviderFields = ({ providerKey, form, updateForm }) => {
         </span>
       </div>,
     ],
+    property_catalog: [
+      cfg('catalogName', 'Nome do catálogo', 'Imóveis Rio de Janeiro'),
+      <div key="catalog-info" className="rounded-2 px-3 py-2 mb-1 d-flex gap-2 align-items-start" style={{ background: 'rgba(20,184,166,0.07)', border: '1px solid rgba(20,184,166,0.22)', fontSize: 12 }}>
+        <LinkIcon size={14} color="#14b8a6" style={{ marginTop: 2, flexShrink: 0 }} />
+        <span className="text-muted">
+          O JSON será importado para uma coleção MongoDB por tenant e vinculado ao funcionário selecionado.
+          O agente consulta por tool estruturada, com filtros e contagem exata.
+        </span>
+      </div>,
+    ],
   };
 
   return <>{(fields[providerKey] || [])}</>;
@@ -745,8 +770,21 @@ const AgentConnectorsPage = () => {
 
   const [wpSyncStatus, setWpSyncStatus] = useState(null);
   const [wpSyncing, setWpSyncing] = useState(false);
+  const [propertyCatalogFile, setPropertyCatalogFile] = useState(null);
+  const [propertyCatalogImport, setPropertyCatalogImport] = useState(null);
+  const [pcSyncUrl, setPcSyncUrl] = useState('');
+  const [pcSyncCptSlug, setPcSyncCptSlug] = useState('');
+  const [pcSyncing, setPcSyncing] = useState(false);
+  const [pcSyncResult, setPcSyncResult] = useState(null);
 
   const [helpProvider, setHelpProvider] = useState(null);
+
+  const [pcCatalogs, setPcCatalogs] = useState([]);
+  const [pcCatalogsLoading, setPcCatalogsLoading] = useState(false);
+  const [deleteCatalogTarget, setDeleteCatalogTarget] = useState(null);
+  const [deletingCatalog, setDeletingCatalog] = useState(false);
+  const [deleteCatalogError, setDeleteCatalogError] = useState('');
+  const [linkingCatalogId, setLinkingCatalogId] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -933,6 +971,57 @@ const AgentConnectorsPage = () => {
     return `$${n.toFixed(n < 0.01 ? 4 : 2)}`;
   };
 
+  const loadPcCatalogs = useCallback(async (agentId) => {
+    if (!agentId) return;
+    setPcCatalogsLoading(true);
+    try {
+      const res = await apiRequest(`/agents/${agentId}/integrations/property-catalog/catalogs`);
+      setPcCatalogs(res?.catalogs || []);
+    } catch {
+      setPcCatalogs([]);
+    } finally {
+      setPcCatalogsLoading(false);
+    }
+  }, []);
+
+  const deletePropertyCatalog = async () => {
+    if (!deleteCatalogTarget || !selectedAgentId) return;
+    setDeletingCatalog(true);
+    setDeleteCatalogError('');
+    try {
+      await apiRequest(
+        `/agents/${selectedAgentId}/integrations/property-catalog/catalogs/${deleteCatalogTarget.id}`,
+        { method: 'DELETE' },
+      );
+      setDeleteCatalogTarget(null);
+      await loadPcCatalogs(selectedAgentId);
+      if (pcCatalogs.length <= 1) {
+        await Promise.all([load(), loadAgentLinks()]);
+      }
+    } catch (err) {
+      setDeleteCatalogError(err?.message || 'Erro ao excluir catálogo.');
+    } finally {
+      setDeletingCatalog(false);
+    }
+  };
+
+  const linkExistingCatalog = async (catalogId) => {
+    if (!selectedAgentId || !catalogId) return;
+    setLinkingCatalogId(catalogId);
+    try {
+      await apiRequest(
+        `/agents/${selectedAgentId}/integrations/property-catalog/catalogs/${catalogId}/link`,
+        { method: 'POST' },
+      );
+      await loadPcCatalogs(selectedAgentId);
+      await loadAgentLinks();
+    } catch {
+      // non-critical, catalog list will reflect actual state on next load
+    } finally {
+      setLinkingCatalogId(null);
+    }
+  };
+
   const fetchWpSyncStatus = useCallback(async () => {
     if (!selectedAgentId) return;
     const isLinked = agentLinks.some((l) => l.integration?.providerKey === 'wordpress');
@@ -951,6 +1040,32 @@ const AgentConnectorsPage = () => {
       setWpSyncStatus((prev) => ({ ...(prev || {}), syncStatus: 'pending', syncProgress: 0 }));
     } catch { /* non-critical */ } finally {
       setWpSyncing(false);
+    }
+  };
+
+  const syncPcFromWordpress = async () => {
+    if (!selectedAgentId || pcSyncing || !pcSyncUrl.trim()) return;
+    try {
+      setPcSyncing(true);
+      setPcSyncResult(null);
+      setFormError('');
+      const result = await apiRequest(
+        `/agents/${selectedAgentId}/integrations/property-catalog/sync`,
+        {
+          method: 'POST',
+          body: {
+            siteUrl: pcSyncUrl.trim(),
+            cptSlug: pcSyncCptSlug.trim() || undefined,
+          },
+          timeoutMs: 120000,
+        },
+      );
+      setPcSyncResult(result);
+      setPropertyCatalogImport(result);
+    } catch (err) {
+      setFormError(err?.message || 'Erro ao sincronizar do WordPress.');
+    } finally {
+      setPcSyncing(false);
     }
   };
 
@@ -1011,6 +1126,11 @@ const AgentConnectorsPage = () => {
     setSlackChannelId(savedChannelId);
     setSmtpVerifyOk(false);
     setSmtpVerifyError('');
+    setPropertyCatalogFile(null);
+    setPropertyCatalogImport(null);
+    setPcSyncUrl('');
+    setPcSyncCptSlug('');
+    setPcSyncResult(null);
     setShowModal(true);
     if (provider.key === 'clickup' && connectedProviderKeys.has('clickup')) {
       fetchClickupLists();
@@ -1018,11 +1138,19 @@ const AgentConnectorsPage = () => {
     if (provider.key === 'slack' && connectedProviderKeys.has('slack')) {
       fetchSlackChannels();
     }
+    if (provider.key === 'property_catalog' && connectedProviderKeys.has('property_catalog') && selectedAgentId) {
+      loadPcCatalogs(selectedAgentId);
+    }
   }
 
   function closeModal() {
     setShowModal(false);
     setFormError('');
+    setPropertyCatalogFile(null);
+    setPropertyCatalogImport(null);
+    setPcSyncUrl('');
+    setPcSyncCptSlug('');
+    setPcSyncResult(null);
   }
 
   const updateForm = (section, key, value) => {
@@ -1080,13 +1208,30 @@ const AgentConnectorsPage = () => {
     try {
       setSaving(true);
       setFormError('');
+      setPropertyCatalogImport(null);
+
+      if (modalProvider.key === 'property_catalog') {
+        if (!selectedAgentId) {
+          throw new Error('Selecione um funcionário IA antes de importar o catálogo.');
+        }
+        if (!autoLink) {
+          throw new Error('Mantenha "Vincular automaticamente" ativo para liberar a tool do catálogo ao funcionário.');
+        }
+        if (!modalIsConnected && !propertyCatalogFile && !pcSyncUrl.trim()) {
+          throw new Error('Selecione um arquivo JSON ou informe a URL do WordPress para importar.');
+        }
+      }
 
       const cleanCredentials = Object.fromEntries(
         Object.entries(form.credentials || {}).filter(
           ([, v]) => v && !/^\*+$/.test(String(v)),
         ),
       );
-      const integration = await apiRequest('/integrations', {
+      // For property_catalog, reuse existing integration instead of creating duplicate
+      const existingForProvider = modalProvider.key === 'property_catalog'
+        ? integrations.find((i) => i.providerKey === 'property_catalog')
+        : null;
+      const integration = existingForProvider ?? await apiRequest('/integrations', {
         method: 'POST',
         body: {
           providerKey: modalProvider.key,
@@ -1117,6 +1262,27 @@ const AgentConnectorsPage = () => {
         linkedNow = true;
       }
 
+      if (modalProvider.key === 'property_catalog') {
+        if (propertyCatalogFile) {
+          const uploadBody = new FormData();
+          uploadBody.append('file', propertyCatalogFile);
+          uploadBody.append('catalogName', form.config?.catalogName || form.name || modalProvider.name);
+
+          const importResult = await apiRequest(
+            `/agents/${selectedAgentId}/integrations/property-catalog/upload`,
+            {
+              method: 'POST',
+              body: uploadBody,
+              timeoutMs: 90000,
+            },
+          );
+
+          setPropertyCatalogImport(importResult);
+        } else if (pcSyncUrl.trim()) {
+          await syncPcFromWordpress();
+        }
+      }
+
       const integrationsRes = await apiRequest('/integrations');
       setIntegrations(integrationsRes?.integrations || []);
 
@@ -1124,6 +1290,15 @@ const AgentConnectorsPage = () => {
         // Mantém o modal aberto e dispara o sync explicitamente para que o
         // usuário veja a confirmação de indexação antes de fechar.
         await triggerWpSync();
+        return;
+      }
+
+      if (modalProvider.key === 'property_catalog') {
+        await loadAgentLinks();
+        // Close only when no file/URL was processed — keep open to show import/sync results
+        if (!propertyCatalogFile && !pcSyncUrl.trim()) {
+          closeModal();
+        }
         return;
       }
 
@@ -1161,6 +1336,20 @@ const AgentConnectorsPage = () => {
       await loadAgentLinks();
     } catch (err) {
       setLoadError(err?.message || 'Erro ao remover conector do funcionário.');
+    } finally {
+      setLinkingId('');
+    }
+  };
+
+  const disconnectIntegration = async (integration) => {
+    try {
+      setLinkingId(integration.id);
+      await apiRequest(`/integrations/${integration.id}`, {
+        method: 'DELETE',
+      });
+      await Promise.all([load(), loadAgentLinks()]);
+    } catch (err) {
+      setLoadError(err?.message || 'Erro ao desconectar integração.');
     } finally {
       setLinkingId('');
     }
@@ -1246,6 +1435,96 @@ const AgentConnectorsPage = () => {
           </Alert>
         )}
 
+        {/* Integrações ativas */}
+        {integrations.length > 0 && selectedAgentId && (
+          <Card className="card-border mb-3">
+            <Card.Header className="py-2 px-3">
+              <div className="d-flex align-items-center gap-2">
+                <LinkIcon size={15} />
+                <h6 className="mb-0">
+                  Integrações ativas
+                  {selectedAgent && (
+                    <span className="text-muted fw-normal ms-2" style={{ fontSize: 12 }}>
+                      — {selectedAgent.name}
+                    </span>
+                  )}
+                </h6>
+              </div>
+            </Card.Header>
+            <Card.Body className="p-0" style={{ maxHeight: 240, overflowY: 'auto' }}>
+              {integrations.map((integration, idx) => {
+                const linked = linkedIntegrationIds.has(integration.id);
+                const meta = providerMeta[integration.providerKey] || defaultMeta;
+                return (
+                  <div
+                    key={integration.id}
+                    className="d-flex align-items-center gap-3 px-3 py-2"
+                    style={{
+                      borderBottom: idx < integrations.length - 1 ? '1px solid var(--bs-border-color-translucent)' : 'none',
+                      background: linked ? 'rgba(25,135,84,0.05)' : 'transparent',
+                    }}
+                  >
+                    <div
+                      className="rounded-2 d-flex align-items-center justify-content-center flex-shrink-0"
+                      style={{ width: 30, height: 30, background: `${meta.color}1a`, border: `1px solid ${meta.color}33` }}
+                    >
+                      <ProviderIconRenderer meta={meta} size={15} />
+                    </div>
+                    <div className="flex-grow-1 d-flex align-items-center gap-2" style={{ minWidth: 0 }}>
+                      <span className="fw-semibold text-truncate" style={{ fontSize: 13 }}>{integration.name}</span>
+                      <span className="text-muted d-none d-sm-inline" style={{ fontSize: 11 }}>{integration.providerKey}</span>
+                    </div>
+                    <Badge
+                      bg={integration.status === 'connected' ? 'success' : 'secondary'}
+                      style={{ fontSize: 10, flexShrink: 0 }}
+                    >
+                      {statusLabels[integration.status] || integration.status}
+                    </Badge>
+                    {linked && integration.providerKey === 'wordpress' && wpSyncStatus?.syncStatus === 'done' && (
+                      <span className="text-success d-none d-md-inline" style={{ fontSize: 11, flexShrink: 0 }}>
+                        <CheckCircle size={11} className="me-1" />
+                        {wpSyncStatus.indexedCount || 0} imóveis
+                      </span>
+                    )}
+                    <div className="d-flex gap-1 flex-shrink-0">
+                      {linked ? (
+                        <Button
+                          variant="outline-danger"
+                          size="sm"
+                          style={{ fontSize: 11, padding: '2px 8px', whiteSpace: 'nowrap' }}
+                          disabled={linkingId === integration.id}
+                          onClick={() => unlinkIntegration(integration)}
+                        >
+                          {linkingId === integration.id ? <Spinner animation="border" size="sm" /> : 'Remover Do Funcionário'}
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline-primary"
+                          size="sm"
+                          style={{ fontSize: 11, padding: '2px 8px', whiteSpace: 'nowrap' }}
+                          disabled={linkingId === integration.id || !selectedAgentId}
+                          onClick={() => linkIntegration(integration)}
+                        >
+                          {linkingId === integration.id ? <Spinner animation="border" size="sm" /> : 'Vincular Ao Funcionário'}
+                        </Button>
+                      )}
+                      <Button
+                        variant="outline-secondary"
+                        size="sm"
+                        style={{ fontSize: 11, padding: '2px 8px' }}
+                        disabled={linkingId === integration.id}
+                        onClick={() => disconnectIntegration(integration)}
+                      >
+                        Desconectar
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </Card.Body>
+          </Card>
+        )}
+
         {/* Catalog */}
         <Card className="card-border mb-4">
           <Card.Header>
@@ -1265,7 +1544,7 @@ const AgentConnectorsPage = () => {
                 />
               </InputGroup>
             </div>
-            <Nav variant="pills" className="gap-1 flex-nowrap overflow-auto pb-1">
+            <Nav variant="pills" className="gap-1 flex-wrap pb-1">
               {availableCategories.map((cat) => {
                 const count =
                   cat === 'all'
@@ -1302,13 +1581,13 @@ const AgentConnectorsPage = () => {
                   const linked = linkedProviderKeys.has(provider.key);
                   const isComingSoon = provider.status === 'coming_soon';
                   return (
-                    <Col md={6} lg={4} key={provider.key}>
+                    <Col xs={6} md={4} lg={3} key={provider.key}>
                       <div
                         role={isComingSoon ? undefined : 'button'}
                         tabIndex={isComingSoon ? undefined : 0}
                         onClick={() => !isComingSoon && openProviderModal(provider)}
                         onKeyDown={(e) => !isComingSoon && e.key === 'Enter' && openProviderModal(provider)}
-                        className="rounded-3 border p-3 h-100 d-flex flex-column gap-2"
+                        className="rounded-3 border p-2 h-100 d-flex flex-column gap-1"
                         style={{
                           cursor: isComingSoon ? 'default' : 'pointer',
                           borderColor: 'var(--bs-border-color)',
@@ -1328,17 +1607,17 @@ const AgentConnectorsPage = () => {
                           e.currentTarget.style.boxShadow = 'none';
                         }}
                       >
-                        <div className="d-flex align-items-center gap-3">
+                        <div className="d-flex align-items-center gap-2">
                           <div
                             className="rounded-2 d-flex align-items-center justify-content-center flex-shrink-0"
-                            style={{ width: 42, height: 42, background: `${meta.color}1a`, border: `1px solid ${meta.color}33` }}
+                            style={{ width: 34, height: 34, background: `${meta.color}1a`, border: `1px solid ${meta.color}33` }}
                           >
-                            <ProviderIconRenderer meta={meta} size={22} />
+                            <ProviderIconRenderer meta={meta} size={18} />
                           </div>
                           <div className="flex-grow-1" style={{ minWidth: 0 }}>
                             <span
                               className="fw-semibold d-block text-truncate"
-                              style={{ fontSize: 14 }}
+                              style={{ fontSize: 13 }}
                             >
                               {provider.name}
                             </span>
@@ -1389,13 +1668,8 @@ const AgentConnectorsPage = () => {
                             </button>
                           )}
                         </div>
-                        <p className="text-muted mb-0 flex-grow-1" style={{ fontSize: 12, lineHeight: 1.5 }}>
-                          {(provider.description || '').length > 80
-                            ? provider.description.slice(0, 80) + '…'
-                            : provider.description}
-                        </p>
                         <div
-                          className="pt-2 d-flex align-items-center gap-1"
+                          className="pt-1 d-flex align-items-center gap-1"
                           style={{ borderTop: '1px solid var(--bs-border-color-translucent)' }}
                         >
                           {isComingSoon ? (
@@ -1430,181 +1704,6 @@ const AgentConnectorsPage = () => {
             )}
           </Card.Body>
         </Card>
-
-        {/* Linked integrations summary */}
-        {agentLinks.length > 0 && selectedAgentId && (
-          <Card className="card-border">
-            <Card.Header>
-              <div className="d-flex align-items-center gap-2">
-                <LinkIcon size={16} />
-                <h5 className="mb-0">
-                  Integrações ativas
-                  {selectedAgent && (
-                    <span className="text-muted fw-normal ms-2" style={{ fontSize: 13 }}>
-                      — {selectedAgent.name}
-                    </span>
-                  )}
-                </h5>
-              </div>
-            </Card.Header>
-            <Card.Body>
-              <Row className="g-3">
-                {integrations.map((integration) => {
-                  const linked = linkedIntegrationIds.has(integration.id);
-                  const meta = providerMeta[integration.providerKey] || defaultMeta;
-                  return (
-                    <Col md={6} lg={4} key={integration.id}>
-                      <div
-                        className="rounded-3 border p-3 h-100 d-flex flex-column gap-2"
-                        style={{
-                          borderColor: linked ? 'rgba(25,135,84,0.5)' : 'var(--bs-border-color)',
-                          background: linked ? 'rgba(25,135,84,0.08)' : 'var(--bs-card-bg)',
-                        }}
-                      >
-                        <div className="d-flex align-items-center gap-3">
-                          <div
-                            className="rounded-2 d-flex align-items-center justify-content-center flex-shrink-0"
-                            style={{ width: 38, height: 38, background: `${meta.color}1a`, border: `1px solid ${meta.color}33` }}
-                          >
-                            <ProviderIconRenderer meta={meta} size={18} />
-                          </div>
-                          <div className="flex-grow-1" style={{ minWidth: 0 }}>
-                            <div className="d-flex align-items-center justify-content-between gap-2">
-                              <span
-                                className="fw-semibold text-truncate d-block"
-                                style={{ fontSize: 13 }}
-                              >
-                                {integration.name}
-                              </span>
-                              <Badge
-                                bg={integration.status === 'connected' ? 'success' : 'secondary'}
-                                style={{ fontSize: 10 }}
-                              >
-                                {statusLabels[integration.status] || integration.status}
-                              </Badge>
-                            </div>
-                            <span className="text-muted" style={{ fontSize: 11 }}>
-                              {integration.providerKey}
-                            </span>
-                          </div>
-                        </div>
-                        {linked ? (
-                          <Button
-                            variant="outline-danger"
-                            size="sm"
-                            className="mt-auto"
-                            disabled={linkingId === integration.id}
-                            onClick={() => unlinkIntegration(integration)}
-                          >
-                            {linkingId === integration.id && (
-                              <Spinner animation="border" size="sm" className="me-1" />
-                            )}
-                            Remover do funcionário
-                          </Button>
-                        ) : (
-                          <Button
-                            variant="outline-primary"
-                            size="sm"
-                            className="mt-auto"
-                            disabled={linkingId === integration.id || !selectedAgentId}
-                            onClick={() => linkIntegration(integration)}
-                          >
-                            {linkingId === integration.id && (
-                              <Spinner animation="border" size="sm" className="me-1" />
-                            )}
-                            Vincular ao funcionário
-                          </Button>
-                        )}
-                        {linked && integration.providerKey === 'wordpress' && (
-                          <div style={{ fontSize: 11 }}>
-                            {(wpSyncStatus?.syncStatus === 'pending' || wpSyncStatus?.syncStatus === 'syncing') && (
-                              <div>
-                                <div className="d-flex align-items-center gap-2 mb-1">
-                                  <Spinner animation="border" style={{ width: 11, height: 11, borderWidth: 2 }} />
-                                  <span style={{ color: '#21759B' }}>
-                                    {wpSyncStatus.syncStatus === 'pending'
-                                      ? 'Aguardando na fila...'
-                                      : `Indexando... ${wpSyncStatus.syncProgress || 0}%${
-                                          wpSyncStatus.totalCount
-                                            ? ` (${wpSyncStatus.indexedCount || 0}/${wpSyncStatus.totalCount})`
-                                            : ''
-                                        }`}
-                                  </span>
-                                </div>
-                                {wpSyncStatus.syncStatus === 'syncing' && (
-                                  <>
-                                    <div className="progress" style={{ height: 3 }}>
-                                      <div
-                                        className="progress-bar"
-                                        role="progressbar"
-                                        style={{ width: `${wpSyncStatus.syncProgress || 0}%`, background: '#21759B' }}
-                                      />
-                                    </div>
-                                    <div className="text-muted mt-1">
-                                      Custo estimado: {formatCostUsd(wpSyncStatus.indexingCostUsd)}
-                                    </div>
-                                  </>
-                                )}
-                              </div>
-                            )}
-                            {wpSyncStatus?.syncStatus === 'done' && (
-                              <div className="d-flex align-items-center justify-content-between">
-                                <span style={{ color: '#198754' }}>
-                                  <CheckCircle size={11} className="me-1" />
-                                  {wpSyncStatus.indexedCount || 0} imóveis • {formatTimeAgo(wpSyncStatus.lastSyncAt)} •{' '}
-                                  {formatCostUsd(wpSyncStatus.indexingCostUsd)}
-                                </span>
-                                <Button
-                                  variant="link"
-                                  size="sm"
-                                  className="p-0 text-muted"
-                                  style={{ fontSize: 11, lineHeight: 1 }}
-                                  onClick={triggerWpSync}
-                                  disabled={wpSyncing}
-                                  title="Sincronizar agora"
-                                >
-                                  <RefreshCw size={11} />
-                                </Button>
-                              </div>
-                            )}
-                            {wpSyncStatus?.syncStatus === 'error' && (
-                              <div className="d-flex align-items-center justify-content-between">
-                                <span className="text-danger">Erro ao sincronizar</span>
-                                <Button
-                                  variant="link"
-                                  size="sm"
-                                  className="p-0"
-                                  style={{ fontSize: 11, color: '#21759B', lineHeight: 1 }}
-                                  onClick={triggerWpSync}
-                                  disabled={wpSyncing}
-                                >
-                                  Tentar novamente
-                                </Button>
-                              </div>
-                            )}
-                            {(!wpSyncStatus || wpSyncStatus.syncStatus === 'idle' || wpSyncStatus.syncStatus === 'not_configured') && (
-                              <Button
-                                variant="link"
-                                size="sm"
-                                className="p-0"
-                                style={{ fontSize: 11, color: '#21759B', lineHeight: 1 }}
-                                onClick={triggerWpSync}
-                                disabled={wpSyncing}
-                              >
-                                <RefreshCw size={11} className="me-1" />
-                                Sincronizar agora
-                              </Button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </Col>
-                  );
-                })}
-              </Row>
-            </Card.Body>
-          </Card>
-        )}
 
         {/* Config Modal */}
         <Modal show={showModal} onHide={closeModal} centered size="md">
@@ -1732,6 +1831,168 @@ const AgentConnectorsPage = () => {
                       form={form}
                       updateForm={updateForm}
                     />
+
+                    {modalProvider.key === 'property_catalog' && modalIsConnected && (
+                      <div className="mb-3">
+                        <div className="d-flex align-items-center justify-content-between mb-2">
+                          <span className="fw-semibold" style={{ fontSize: 13 }}>Catálogos vinculados</span>
+                          {pcCatalogsLoading && <Spinner animation="border" size="sm" />}
+                        </div>
+                        {!pcCatalogsLoading && pcCatalogs.filter((c) => c.linked !== false).length === 0 ? (
+                          <p className="text-muted mb-0" style={{ fontSize: 12 }}>Nenhum catálogo vinculado ainda.</p>
+                        ) : (
+                          pcCatalogs.filter((c) => c.linked !== false).map((catalog) => (
+                            <div
+                              key={catalog.id || catalog._id}
+                              className="d-flex align-items-center justify-content-between rounded-2 px-3 py-2 mb-2"
+                              style={{ background: 'rgba(20,184,166,0.05)', border: '1px solid rgba(20,184,166,0.2)', fontSize: 12 }}
+                            >
+                              <div style={{ minWidth: 0, marginRight: 8 }}>
+                                <div className="fw-semibold text-truncate">{catalog.name}</div>
+                                <div className="text-muted">
+                                  {catalog.totalRecords || 0} imóveis
+                                  {catalog.status === 'ready' && (
+                                    <span className="ms-1 text-success">· pronto</span>
+                                  )}
+                                </div>
+                              </div>
+                              <Button
+                                variant="outline-danger"
+                                size="sm"
+                                style={{ fontSize: 11, padding: '2px 8px', flexShrink: 0 }}
+                                onClick={() => setDeleteCatalogTarget({
+                                  id: catalog.id || catalog._id,
+                                  name: catalog.name,
+                                  totalRecords: catalog.totalRecords || 0,
+                                })}
+                              >
+                                <Trash2 size={11} className="me-1" />
+                                Excluir
+                              </Button>
+                            </div>
+                          ))
+                        )}
+
+                        {!pcCatalogsLoading && pcCatalogs.filter((c) => c.linked === false).length > 0 && (
+                          <>
+                            <div className="fw-semibold mb-2 mt-3" style={{ fontSize: 13 }}>Vincular catálogo existente</div>
+                            {pcCatalogs.filter((c) => c.linked === false).map((catalog) => (
+                              <div
+                                key={catalog.id || catalog._id}
+                                className="d-flex align-items-center justify-content-between rounded-2 px-3 py-2 mb-2"
+                                style={{ background: 'var(--bs-tertiary-bg)', border: '1px solid var(--bs-border-color)', fontSize: 12 }}
+                              >
+                                <div style={{ minWidth: 0, marginRight: 8 }}>
+                                  <div className="fw-semibold text-truncate">{catalog.name}</div>
+                                  <div className="text-muted">{catalog.totalRecords || 0} imóveis</div>
+                                </div>
+                                <Button
+                                  variant="outline-primary"
+                                  size="sm"
+                                  style={{ fontSize: 11, padding: '2px 8px', flexShrink: 0 }}
+                                  disabled={linkingCatalogId === (catalog.id || catalog._id)}
+                                  onClick={() => linkExistingCatalog(catalog.id || catalog._id)}
+                                >
+                                  {linkingCatalogId === (catalog.id || catalog._id) ? (
+                                    <Spinner animation="border" size="sm" />
+                                  ) : (
+                                    'Usar este catálogo'
+                                  )}
+                                </Button>
+                              </div>
+                            ))}
+                          </>
+                        )}
+                        <hr className="my-3" />
+                      </div>
+                    )}
+
+                    {modalProvider.key === 'property_catalog' && (
+                      <div className="mb-3">
+                        <Form.Group className="mb-3">
+                          <Form.Label>Arquivo JSON de imóveis</Form.Label>
+                          <Form.Control
+                            type="file"
+                            accept="application/json,.json"
+                            onChange={(e) => {
+                              setPropertyCatalogFile(e.target.files?.[0] || null);
+                              setPropertyCatalogImport(null);
+                              setPcSyncResult(null);
+                              setFormError('');
+                            }}
+                          />
+                          <Form.Text className="text-muted">
+                            Aceita objeto único ou lista de imóveis. Tamanho máximo: 50MB.
+                          </Form.Text>
+                        </Form.Group>
+
+                        {propertyCatalogFile && (
+                          <div className="rounded-2 px-3 py-2 mb-2" style={{ background: 'var(--bs-tertiary-bg)', border: '1px solid var(--bs-border-color)', fontSize: 12 }}>
+                            <div className="fw-semibold">{propertyCatalogFile.name}</div>
+                            <div className="text-muted">
+                              {(propertyCatalogFile.size / 1024 / 1024).toFixed(2)} MB
+                            </div>
+                          </div>
+                        )}
+
+                        {!propertyCatalogFile && (
+                          <div className="rounded-2 p-3 mb-2" style={{ background: 'rgba(20,184,166,0.05)', border: '1px solid rgba(20,184,166,0.2)' }}>
+                            <div className="d-flex align-items-center gap-2 mb-2">
+                              <Globe size={14} color="#14b8a6" />
+                              <span className="fw-semibold" style={{ fontSize: 13 }}>Ou sincronizar direto do WordPress</span>
+                            </div>
+                            <Form.Group className="mb-2">
+                              <Form.Control
+                                type="url"
+                                placeholder="https://suaimobiliaria.com.br"
+                                value={pcSyncUrl}
+                                onChange={(e) => { setPcSyncUrl(e.target.value); setPcSyncResult(null); setFormError(''); }}
+                                style={{ fontSize: 13 }}
+                              />
+                              <Form.Text className="text-muted">URL do site WordPress com imóveis</Form.Text>
+                            </Form.Group>
+                            <Form.Group className="mb-2">
+                              <Form.Control
+                                type="text"
+                                placeholder="imoveis (opcional)"
+                                value={pcSyncCptSlug}
+                                onChange={(e) => setPcSyncCptSlug(e.target.value)}
+                                style={{ fontSize: 13 }}
+                              />
+                              <Form.Text className="text-muted">Slug do CPT (deixe vazio para autodetectar)</Form.Text>
+                            </Form.Group>
+                            {pcSyncUrl.trim() && (
+                              <Button
+                                variant="outline-primary"
+                                size="sm"
+                                disabled={pcSyncing || !selectedAgentId}
+                                onClick={syncPcFromWordpress}
+                                style={{ fontSize: 12 }}
+                              >
+                                {pcSyncing ? (
+                                  <><Spinner animation="border" size="sm" className="me-1" />Sincronizando...</>
+                                ) : (
+                                  <><RefreshCw size={12} className="me-1" />Sincronizar do WordPress</>
+                                )}
+                              </Button>
+                            )}
+                            {pcSyncResult?.ok && (
+                              <Alert variant="success" className="py-2 mb-0 mt-2" style={{ fontSize: 13 }}>
+                                <CheckCircle size={14} className="me-1" />
+                                {pcSyncResult.totalRecords || 0} imóveis sincronizados com sucesso.
+                              </Alert>
+                            )}
+                          </div>
+                        )}
+
+                        {propertyCatalogImport?.ok && propertyCatalogFile && (
+                          <Alert variant="success" className="py-2 mb-0" style={{ fontSize: 13 }}>
+                            <CheckCircle size={14} className="me-1" />
+                            {propertyCatalogImport.totalRecords || 0} imóveis importados no catálogo.
+                          </Alert>
+                        )}
+                      </div>
+                    )}
 
                     {modalProvider.key === 'wordpress' && modalIsConnected && (
                       <div
@@ -2043,25 +2304,106 @@ const AgentConnectorsPage = () => {
                     Vincular ao funcionário
                   </Button>
                 )}
-                {!isOAuth(modalProvider?.key) && (
+                {modalProvider?.key === 'property_catalog' && modalIsConnected && !linkedProviderKeys.has(modalProvider.key) && selectedAgentId && (
                   <Button
-                    type="submit"
-                    form="connect-form"
-                    variant="primary"
+                    variant="success"
                     disabled={saving}
+                    onClick={async () => {
+                      try {
+                        setSaving(true);
+                        const existing = integrations.find((i) => i.providerKey === 'property_catalog');
+                        if (existing) await linkIntegration(existing);
+                        closeModal();
+                      } finally {
+                        setSaving(false);
+                      }
+                    }}
                   >
-                    {saving ? (
-                      <Spinner animation="border" size="sm" className="me-2" />
-                    ) : (
-                      <Zap size={14} className="me-1" />
-                    )}
-                    {modalIsConnected ? 'Atualizar conexão' : 'Conectar'}
+                    {saving ? <Spinner animation="border" size="sm" className="me-2" /> : <CheckCircle size={14} className="me-1" />}
+                    Conectar ao funcionário
                   </Button>
+                )}
+                {!isOAuth(modalProvider?.key) && (
+                  (() => {
+                    const pcDone = modalProvider?.key === 'property_catalog' && (pcSyncResult?.ok || propertyCatalogImport?.ok);
+                    return pcDone ? (
+                      <Button variant="success" onClick={closeModal} disabled={saving}>
+                        <CheckCircle size={14} className="me-1" />
+                        Salvar conexão
+                      </Button>
+                    ) : (
+                      <Button
+                        type="submit"
+                        form="connect-form"
+                        variant="primary"
+                        disabled={saving}
+                      >
+                        {saving ? (
+                          <Spinner animation="border" size="sm" className="me-2" />
+                        ) : (
+                          <Zap size={14} className="me-1" />
+                        )}
+                        {modalProvider?.key === 'property_catalog'
+                          ? 'Conectar e importar'
+                          : modalIsConnected ? 'Atualizar conexão' : 'Conectar'}
+                      </Button>
+                    );
+                  })()
                 )}
               </Modal.Footer>
             </>
           )}
         </Modal>
+
+        {deleteCatalogTarget && (
+          <Modal
+            show
+            onHide={() => { if (!deletingCatalog) { setDeleteCatalogTarget(null); setDeleteCatalogError(''); } }}
+            centered
+            size="sm"
+          >
+            <Modal.Header closeButton className="border-bottom-0 pb-0">
+              <Modal.Title style={{ fontSize: 16 }}>Excluir catálogo</Modal.Title>
+            </Modal.Header>
+            <Modal.Body>
+              <p style={{ fontSize: 13 }}>
+                Você está prestes a excluir permanentemente o catálogo{' '}
+                <strong>{deleteCatalogTarget.name}</strong> com{' '}
+                <strong>{deleteCatalogTarget.totalRecords} imóveis</strong>.
+              </p>
+              <p className="text-danger fw-semibold mb-0" style={{ fontSize: 13 }}>
+                Esta ação não pode ser desfeita.
+              </p>
+              {deleteCatalogError && (
+                <Alert variant="danger" className="mt-3 mb-0 py-2" style={{ fontSize: 13 }}>
+                  {deleteCatalogError}
+                </Alert>
+              )}
+            </Modal.Body>
+            <Modal.Footer className="border-top-0 pt-0">
+              <Button
+                variant="light"
+                size="sm"
+                onClick={() => { setDeleteCatalogTarget(null); setDeleteCatalogError(''); }}
+                disabled={deletingCatalog}
+              >
+                Cancelar
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={deletePropertyCatalog}
+                disabled={deletingCatalog}
+              >
+                {deletingCatalog ? (
+                  <><Spinner animation="border" size="sm" className="me-1" />Excluindo...</>
+                ) : (
+                  <><Trash2 size={12} className="me-1" />Excluir catálogo</>
+                )}
+              </Button>
+            </Modal.Footer>
+          </Modal>
+        )}
 
         {helpProvider && (
           <HelpModal

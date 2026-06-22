@@ -75,6 +75,12 @@ export const ProviderIcons = {
       <path d="M12.1 0C6.579 0 2.1 4.494 2.1 10.035c0 5.19 3.9 9.477 8.934 10.012V24h2.171v-3.953C18.237 19.52 22.1 15.228 22.1 10.035 22.1 4.494 17.621 0 12.1 0zm.02 18.097c-4.428 0-8.02-3.602-8.02-8.044 0-4.441 3.592-8.044 8.02-8.044 4.427 0 8.02 3.603 8.02 8.044 0 4.442-3.593 8.044-8.02 8.044z" fill="#1A73E8"/>
     </svg>
   ),
+  property_catalog: ({ size = 20 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" stroke="#14b8a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M9 22V12h6v10" stroke="#14b8a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ),
 };
 
 export const providerMeta = {
@@ -90,6 +96,7 @@ export const providerMeta = {
   notion:           { Icon: ProviderIcons.notion,          color: '#6b7280', label: 'Notion' },
   pipedrive:        { Icon: ProviderIcons.pipedrive,       color: '#1A73E8', label: 'Pipedrive' },
   wordpress:        { Icon: ProviderIcons.wordpress,       color: '#21759B', label: 'WordPress Imóveis' },
+  property_catalog: { Icon: ProviderIcons.property_catalog, color: '#14b8a6', label: 'Catálogo de Imóveis' },
 };
 
 const TOOL_PREFIX_TO_PROVIDER = [
@@ -103,8 +110,9 @@ const TOOL_PREFIX_TO_PROVIDER = [
   ['hubspot_',         'hubspot'],
   ['notion_',          'notion'],
   ['pipedrive_',       'pipedrive'],
-  ['whatsapp_',        'whatsapp'],
-  ['wordpress_',       'wordpress'],
+  ['whatsapp_',           'whatsapp'],
+  ['wordpress_',          'wordpress'],
+  ['property_catalog_',   'property_catalog'],
 ];
 
 export function toolsToProviderKeys(allowList = []) {
