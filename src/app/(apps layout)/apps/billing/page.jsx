@@ -45,12 +45,42 @@ const Countdown = ({ seconds: init }) => {
   return <span className={s < 60 ? 'text-danger fw-semibold' : 'fw-semibold'}>{mm}:{ss}</span>;
 };
 
-// ─── Modal de pagamento (PIX) ─────────────────────────────────────────────────
+// ─── helpers de máscara ───────────────────────────────────────────────────────
+
+const maskCpfCnpj = (value) => {
+  const d = value.replace(/\D/g, '');
+  if (d.length <= 11) {
+    return d.replace(/(\d{3})(\d)/, '$1.$2')
+             .replace(/(\d{3})(\d)/, '$1.$2')
+             .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+  }
+  return d.slice(0, 14)
+          .replace(/(\d{2})(\d)/, '$1.$2')
+          .replace(/(\d{3})(\d)/, '$1.$2')
+          .replace(/(\d{3})(\d)/, '$1/$2')
+          .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+};
+
+// Dados pré-preenchidos para teste em sandbox Asaas
+const SANDBOX_DEFAULTS = {
+  cpfCnpj:  '111.444.777-35',
+  ccName:   'Teste Sandbox',
+  ccNumber: '4111 1111 1111 1111',
+  ccExpiry: '05/2028',
+  ccCvv:    '123',
+};
+
+// ─── Modal de pagamento (PIX + Cartão) ───────────────────────────────────────
 
 function SubscribeModal({ show, onHide, agentSlots, amountBrl, onSuccess }) {
   const user = getAuthUser();
   const [step,      setStep]      = useState('form');
-  const [cpfCnpj,   setCpfCnpj]   = useState('');
+  const [payMethod, setPayMethod] = useState('pix');
+  const [cpfCnpj,   setCpfCnpj]   = useState(SANDBOX_DEFAULTS.cpfCnpj);
+  const [ccName,    setCcName]    = useState(SANDBOX_DEFAULTS.ccName);
+  const [ccNumber,  setCcNumber]  = useState(SANDBOX_DEFAULTS.ccNumber);
+  const [ccExpiry,  setCcExpiry]  = useState(SANDBOX_DEFAULTS.ccExpiry);
+  const [ccCvv,     setCcCvv]     = useState(SANDBOX_DEFAULTS.ccCvv);
   const [errMsg,    setErrMsg]    = useState(null);
   const [pixData,   setPixData]   = useState(null);
   const [pixCopied, setPixCopied] = useState(false);
@@ -60,11 +90,18 @@ function SubscribeModal({ show, onHide, agentSlots, amountBrl, onSuccess }) {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
   };
 
+  const resetForm = useCallback(() => {
+    setStep('form'); setPixData(null); setErrMsg(null);
+    setCpfCnpj(SANDBOX_DEFAULTS.cpfCnpj);
+    setCcName(SANDBOX_DEFAULTS.ccName);
+    setCcNumber(SANDBOX_DEFAULTS.ccNumber);
+    setCcExpiry(SANDBOX_DEFAULTS.ccExpiry);
+    setCcCvv(SANDBOX_DEFAULTS.ccCvv);
+  }, []);
+
   const handleClose = useCallback(() => {
-    stopPoll();
-    setStep('form'); setPixData(null); setCpfCnpj(''); setErrMsg(null);
-    onHide();
-  }, [onHide]);
+    stopPoll(); resetForm(); onHide();
+  }, [onHide, resetForm]);
 
   useEffect(() => () => stopPoll(), []);
 
@@ -98,11 +135,58 @@ function SubscribeModal({ show, onHide, agentSlots, amountBrl, onSuccess }) {
     }
   };
 
+  const handleCardPay = async () => {
+    const cpf = cpfCnpj.replace(/\D/g, '');
+    if (cpf.length < 11) { setErrMsg('Informe um CPF ou CNPJ válido.'); return; }
+    if (!ccName.trim()) { setErrMsg('Informe o nome impresso no cartão.'); return; }
+    const rawNumber = ccNumber.replace(/\s/g, '');
+    if (rawNumber.length < 13) { setErrMsg('Número de cartão inválido.'); return; }
+    const parts = ccExpiry.split('/');
+    const expMonth = parts[0];
+    const expYear  = parts[1];
+    if (!expMonth || !expYear || expYear.length < 4) { setErrMsg('Informe a validade no formato MM/AAAA.'); return; }
+    if (ccCvv.length < 3) { setErrMsg('CVV inválido.'); return; }
+    setErrMsg(null); setStep('waiting');
+    try {
+      const order = await createAgentCheckout({
+        agentSlots,
+        paymentMethod: 'credit_card',
+        customerName:    user?.name  || 'Cliente',
+        customerEmail:   user?.email || 'cliente@venorica.ai',
+        customerCpfCnpj: cpf,
+        creditCard: {
+          holderName:  ccName.trim(),
+          number:      rawNumber,
+          expiryMonth: expMonth.padStart(2, '0'),
+          expiryYear:  expYear,
+          ccv:         ccCvv,
+        },
+      });
+      startPoll(order.orderId);
+    } catch (err) {
+      setStep('form');
+      setErrMsg(err?.message || 'Erro ao processar cartão. Verifique os dados e tente novamente.');
+    }
+  };
+
   const copyPix = () => {
     if (!pixData?.pixCopyPaste) return;
     navigator.clipboard.writeText(pixData.pixCopyPaste);
     setPixCopied(true);
     setTimeout(() => setPixCopied(false), 3000);
+  };
+
+  const handleCpfCnpjChange = (e) => setCpfCnpj(maskCpfCnpj(e.target.value));
+
+  const handleCardNumberChange = (e) => {
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 16);
+    setCcNumber(digits.replace(/(.{4})/g, '$1 ').trim());
+  };
+
+  const handleExpiryChange = (e) => {
+    let val = e.target.value.replace(/\D/g, '').slice(0, 6);
+    if (val.length > 2) val = val.slice(0, 2) + '/' + val.slice(2);
+    setCcExpiry(val);
   };
 
   if (!agentSlots) return null;
@@ -133,7 +217,9 @@ function SubscribeModal({ show, onHide, agentSlots, amountBrl, onSuccess }) {
         {step === 'waiting' && !pixData && (
           <div className="text-center py-5">
             <Spinner style={{ width: 44, height: 44, color: '#6366f1' }} />
-            <p className="mt-3 text-muted small">Gerando cobrança PIX…</p>
+            <p className="mt-3 text-muted small">
+              {payMethod === 'credit_card' ? 'Processando pagamento no cartão…' : 'Gerando cobrança PIX…'}
+            </p>
           </div>
         )}
 
@@ -177,7 +263,7 @@ function SubscribeModal({ show, onHide, agentSlots, amountBrl, onSuccess }) {
 
         {step === 'form' && (
           <>
-            <div className="d-flex justify-content-between align-items-center rounded-3 px-3 py-2 mb-4"
+            <div className="d-flex justify-content-between align-items-center rounded-3 px-3 py-2 mb-3"
               style={{ background: 'var(--bs-tertiary-bg)', border: '1px solid var(--bs-border-color)' }}>
               <div>
                 <div className="fw-semibold small">{agentSlots} agente(s) de IA</div>
@@ -186,18 +272,68 @@ function SubscribeModal({ show, onHide, agentSlots, amountBrl, onSuccess }) {
               <div className="fw-bold fs-5">{fmtBrl(amountBrl)}<span className="text-muted fw-normal" style={{ fontSize: 13 }}>/mês</span></div>
             </div>
 
+            <div className="d-flex gap-2 mb-4">
+              <button type="button" style={{ flex: 1 }}
+                className={`btn btn-sm fw-semibold ${payMethod === 'pix' ? 'btn-primary' : 'btn-outline-secondary'}`}
+                onClick={() => { setPayMethod('pix'); setErrMsg(null); }}>
+                ⚡ PIX
+              </button>
+              <button type="button" style={{ flex: 1 }}
+                className={`btn btn-sm fw-semibold ${payMethod === 'credit_card' ? 'btn-primary' : 'btn-outline-secondary'}`}
+                onClick={() => { setPayMethod('credit_card'); setErrMsg(null); }}>
+                💳 Cartão de Crédito
+              </button>
+            </div>
+
             {errMsg && <Alert variant="danger" className="py-2 small mb-3">{errMsg}</Alert>}
 
-            <div className="mb-4">
+            <div className="mb-3">
               <label className="form-label small fw-semibold">CPF ou CNPJ</label>
               <input type="text" className="form-control" maxLength={18}
                 placeholder="000.000.000-00 ou 00.000.000/0001-00"
-                value={cpfCnpj} onChange={(e) => setCpfCnpj(e.target.value)} />
+                value={cpfCnpj} onChange={handleCpfCnpjChange} />
             </div>
 
-            <Button variant="success" className="w-100 fw-semibold mb-2" onClick={handlePixGenerate}>
-              ⚡ Pagar com PIX — {fmtBrl(amountBrl)}
-            </Button>
+            {payMethod === 'pix' && (
+              <Button variant="success" className="w-100 fw-semibold mb-2" onClick={handlePixGenerate}>
+                ⚡ Pagar com PIX — {fmtBrl(amountBrl)}
+              </Button>
+            )}
+
+            {payMethod === 'credit_card' && (
+              <>
+                <div className="mb-3">
+                  <label className="form-label small fw-semibold">Nome no cartão</label>
+                  <input type="text" className="form-control"
+                    placeholder="Como está impresso no cartão"
+                    value={ccName} onChange={(e) => setCcName(e.target.value)} />
+                </div>
+                <div className="mb-3">
+                  <label className="form-label small fw-semibold">Número do cartão</label>
+                  <input type="text" className="form-control" maxLength={19}
+                    placeholder="0000 0000 0000 0000"
+                    value={ccNumber} onChange={handleCardNumberChange} />
+                </div>
+                <div className="d-flex gap-3 mb-4">
+                  <div style={{ flex: 2 }}>
+                    <label className="form-label small fw-semibold">Validade</label>
+                    <input type="text" className="form-control" maxLength={7}
+                      placeholder="MM/AAAA"
+                      value={ccExpiry} onChange={handleExpiryChange} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label className="form-label small fw-semibold">CVV</label>
+                    <input type="text" className="form-control" maxLength={4}
+                      placeholder="123"
+                      value={ccCvv} onChange={(e) => setCcCvv(e.target.value.replace(/\D/g, '').slice(0, 4))} />
+                  </div>
+                </div>
+                <Button className="w-100 fw-semibold mb-2" onClick={handleCardPay}
+                  style={{ background: '#6366f1', borderColor: '#6366f1' }}>
+                  💳 Pagar com Cartão — {fmtBrl(amountBrl)}
+                </Button>
+              </>
+            )}
 
             <div className="text-muted text-center mt-2" style={{ fontSize: 11 }}>
               🔒 Pagamento seguro via Asaas · SSL 256-bit · Renovação automática mensal
@@ -251,6 +387,7 @@ const BillingPage = () => {
     setFeedback({ v: 'success', m: `${quantity} agente(s) ativado(s) com sucesso!` });
     await fetchSummary();
     await fetchOrders();
+    window.dispatchEvent(new CustomEvent('agentSlotsUpdated'));
   };
 
   const handleCancel = async () => {

@@ -47,16 +47,18 @@ const TopNav = () => {
     const isFleet = pathname?.startsWith('/apps/fleet');
 
     useEffect(() => {
-        getAgentBillingSummary()
-            .then(res => setAgentSummary(normalizeAgentSummary(res?.data)))
-            .catch(() => setAgentSummary({ agentSlots: 0, activeAgentsCount: 0 }));
-        // Atualiza a cada 5 minutos
-        const t = setInterval(() => {
+        const fetchSummary = () =>
             getAgentBillingSummary()
                 .then(res => setAgentSummary(normalizeAgentSummary(res?.data)))
-                .catch(() => setAgentSummary(current => current));
-        }, 5 * 60 * 1000);
-        return () => clearInterval(t);
+                .catch(() => {});
+
+        fetchSummary();
+        const t = setInterval(fetchSummary, 5 * 60 * 1000);
+        window.addEventListener('agentSlotsUpdated', fetchSummary);
+        return () => {
+            clearInterval(t);
+            window.removeEventListener('agentSlotsUpdated', fetchSummary);
+        };
     }, []);
 
     const CloseSearchInput = () => {

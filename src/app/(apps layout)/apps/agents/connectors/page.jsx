@@ -184,12 +184,13 @@ const PROVIDER_HELP_GUIDE = {
   property_catalog: {
     title: 'Como importar Catálogo de Imóveis',
     steps: [
-      { label: 'Prepare o JSON', detail: 'Use um objeto ou uma lista de objetos com campos estruturados de imóvel, como código, título, preços, características e endereço.' },
+      { label: 'Prepare o arquivo', detail: 'Aceita 3 formatos: (1) .json — objeto ou lista de objetos com campos de imóvel; (2) .xlsx — planilha Excel com cabeçalho (mesmo formato do botão "Excel" de exportação); (3) .csv — CSV com cabeçalho, codificação UTF-8.' },
       { label: 'Escolha o funcionário IA', detail: 'Selecione o agente que poderá consultar esse catálogo.' },
-      { label: 'Envie o arquivo', detail: 'Selecione o arquivo .json. O sistema salva os imóveis no MongoDB e vincula a base ao agente.' },
+      { label: 'Envie o arquivo', detail: 'Selecione o arquivo. O sistema detecta o formato automaticamente, importa para o MongoDB e vincula ao agente.' },
+      { label: 'Reimporte com enriquecimento', detail: 'Para reimportar um catálogo já enriquecido, exporte o Excel, corrija os dados e reimporte. O sistema faz upsert pelo ID Externo, preservando os campos.' },
       { label: 'Teste no chat', detail: 'Pergunte por bairro, preço, quartos ou quantidade de imóveis para confirmar a consulta estruturada.' },
     ],
-    note: 'Esse conector é indicado para catálogos grandes. Ele evita transformar todo o JSON em chunks de RAG e permite contagem exata por filtros.',
+    note: 'O Excel de exportação pode ser reimportado diretamente — todos os campos enriquecidos (vista mar, distância da praia, etc.) são preservados.',
   },
   webhook_inbound: {
     title: 'Como usar o Webhook Inbound',
@@ -1255,7 +1256,7 @@ const AgentConnectorsPage = () => {
           throw new Error('Mantenha "Vincular automaticamente" ativo para liberar a tool do catálogo ao funcionário.');
         }
         if (!modalIsConnected && !propertyCatalogFile && !pcSyncUrl.trim()) {
-          throw new Error('Selecione um arquivo JSON ou informe a URL do WordPress para importar.');
+          throw new Error('Selecione um arquivo (.json, .xlsx ou .csv) ou informe a URL do WordPress para importar.');
         }
       }
 
@@ -1963,10 +1964,10 @@ const AgentConnectorsPage = () => {
                     {modalProvider.key === 'property_catalog' && (
                       <div className="mb-3">
                         <Form.Group className="mb-3">
-                          <Form.Label>Arquivo JSON de imóveis</Form.Label>
+                          <Form.Label>Arquivo de imóveis</Form.Label>
                           <Form.Control
                             type="file"
-                            accept="application/json,.json"
+                            accept="application/json,.json,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xlsx,.xls,text/csv,.csv"
                             onChange={(e) => {
                               setPropertyCatalogFile(e.target.files?.[0] || null);
                               setPropertyCatalogImport(null);
@@ -1975,7 +1976,7 @@ const AgentConnectorsPage = () => {
                             }}
                           />
                           <Form.Text className="text-muted">
-                            Aceita objeto único ou lista de imóveis. Tamanho máximo: 50MB.
+                            Aceita <strong>.json</strong> (estruturado), <strong>.xlsx</strong> (Excel) ou <strong>.csv</strong> — formato do export do catálogo. Tamanho máximo: 50MB.
                           </Form.Text>
                         </Form.Group>
 
@@ -2041,7 +2042,7 @@ const AgentConnectorsPage = () => {
                         {propertyCatalogImport?.ok && propertyCatalogFile && (
                           <Alert variant="success" className="py-2 mb-0" style={{ fontSize: 13 }}>
                             <CheckCircle size={14} className="me-1" />
-                            {propertyCatalogImport.totalRecords || 0} imóveis importados no catálogo.
+                            {propertyCatalogImport.totalRecords || 0} imóveis importados com sucesso do arquivo <strong>{propertyCatalogFile.name}</strong>.
                           </Alert>
                         )}
                       </div>
