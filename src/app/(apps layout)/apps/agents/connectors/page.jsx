@@ -21,6 +21,7 @@ import {
   Activity,
   ArrowLeft,
   CheckCircle,
+  Download,
   Globe,
   Headphones,
   HelpCircle,
@@ -344,6 +345,8 @@ const Icons = {
   ),
 };
 import { apiRequest } from '@/lib/api/client';
+import { getAccessToken } from '@/lib/auth/session';
+import { resolveApiBaseUrl } from '@/lib/api/config';
 
 const categoryLabels = {
   channel: 'Canal',
@@ -785,6 +788,7 @@ const AgentConnectorsPage = () => {
   const [deletingCatalog, setDeletingCatalog] = useState(false);
   const [deleteCatalogError, setDeleteCatalogError] = useState('');
   const [linkingCatalogId, setLinkingCatalogId] = useState(null);
+  const [exportingCatalogId, setExportingCatalogId] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -1002,6 +1006,39 @@ const AgentConnectorsPage = () => {
       setDeleteCatalogError(err?.message || 'Erro ao excluir catálogo.');
     } finally {
       setDeletingCatalog(false);
+    }
+  };
+
+  const exportPropertyCatalog = async (catalogId, catalogName) => {
+    if (!selectedAgentId || !catalogId) return;
+    setExportingCatalogId(catalogId);
+    try {
+      const token = getAccessToken();
+      const baseUrl = await resolveApiBaseUrl();
+      const res = await fetch(
+        `${baseUrl}/agents/${selectedAgentId}/integrations/property-catalog/catalogs/${catalogId}/export`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) {
+        let errMsg = 'Erro ao exportar catálogo.';
+        try { const j = await res.json(); errMsg = j?.message || errMsg; } catch {}
+        throw new Error(errMsg);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const disposition = res.headers.get('Content-Disposition') || '';
+      const match = disposition.match(/filename="?([^"]+)"?/);
+      a.href = url;
+      a.download = match?.[1] || `${catalogName || 'catalogo'}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err?.message || 'Erro ao exportar catálogo.');
+    } finally {
+      setExportingCatalogId(null);
     }
   };
 
@@ -1856,19 +1893,35 @@ const AgentConnectorsPage = () => {
                                   )}
                                 </div>
                               </div>
-                              <Button
-                                variant="outline-danger"
-                                size="sm"
-                                style={{ fontSize: 11, padding: '2px 8px', flexShrink: 0 }}
-                                onClick={() => setDeleteCatalogTarget({
-                                  id: catalog.id || catalog._id,
-                                  name: catalog.name,
-                                  totalRecords: catalog.totalRecords || 0,
-                                })}
-                              >
-                                <Trash2 size={11} className="me-1" />
-                                Excluir
-                              </Button>
+                              <div className="d-flex gap-1 flex-shrink-0">
+                                <Button
+                                  variant="outline-secondary"
+                                  size="sm"
+                                  style={{ fontSize: 11, padding: '2px 8px' }}
+                                  disabled={exportingCatalogId === (catalog.id || catalog._id)}
+                                  onClick={() => exportPropertyCatalog(catalog.id || catalog._id, catalog.name)}
+                                  title="Exportar para Excel"
+                                >
+                                  {exportingCatalogId === (catalog.id || catalog._id) ? (
+                                    <Spinner animation="border" size="sm" />
+                                  ) : (
+                                    <><Download size={11} className="me-1" />Excel</>
+                                  )}
+                                </Button>
+                                <Button
+                                  variant="outline-danger"
+                                  size="sm"
+                                  style={{ fontSize: 11, padding: '2px 8px' }}
+                                  onClick={() => setDeleteCatalogTarget({
+                                    id: catalog.id || catalog._id,
+                                    name: catalog.name,
+                                    totalRecords: catalog.totalRecords || 0,
+                                  })}
+                                >
+                                  <Trash2 size={11} className="me-1" />
+                                  Excluir
+                                </Button>
+                              </div>
                             </div>
                           ))
                         )}
