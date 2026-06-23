@@ -30,6 +30,7 @@ import {
   Shield,
   Tool,
   User,
+  Users,
 } from 'react-feather';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -84,6 +85,18 @@ const PROMPT_SECTIONS = [
       'Quais ferramentas pode acionar?',
       'Quais acoes precisam de aprovacao?',
       'Quais ferramentas nunca devem ser usadas?',
+    ],
+  },
+  {
+    key: 'USER',
+    label: 'Perfil do Usuario',
+    file: 'USER.md',
+    icon: Users,
+    helper: 'Perfil e preferencias do usuario aprendidos automaticamente durante as conversas.',
+    questions: [
+      'O que a agente ja sabe sobre este usuario?',
+      'Ha preferencias ou contexto de negocio registrado?',
+      'Tem informacao sensivel que deve ser removida?',
     ],
   },
   {

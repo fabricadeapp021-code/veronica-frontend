@@ -53,6 +53,14 @@ export const SidebarMenu = [
                 path: '/apps/billing',
                 grp_name: 'admin',
             },
+            {
+                id: 'dash_ai_config',
+                name: 'Chaves de IA',
+                icon: <Icons.Key />,
+                path: '/apps/settings/ai-config',
+                activePathPrefix: '/apps/settings/ai-config',
+                grp_name: 'admin',
+            },
         ],
     },
 ];
