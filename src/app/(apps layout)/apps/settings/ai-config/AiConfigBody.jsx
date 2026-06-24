@@ -13,7 +13,7 @@ const PROVIDERS = [
         models: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
         defaultModel: 'gpt-4o-mini',
         color: '#10a37f',
-        bg: '#f0faf5',
+        rgb: '16,163,127',
     },
     {
         id: 'anthropic',
@@ -23,7 +23,7 @@ const PROVIDERS = [
         models: ['claude-opus-4-8', 'claude-sonnet-4-6', 'claude-haiku-4-5-20251001'],
         defaultModel: 'claude-sonnet-4-6',
         color: '#d97757',
-        bg: '#fdf6f3',
+        rgb: '217,119,87',
     },
     {
         id: 'google',
@@ -33,7 +33,7 @@ const PROVIDERS = [
         models: ['gemini-2.0-flash', 'gemini-1.5-pro', 'gemini-1.5-flash'],
         defaultModel: 'gemini-2.0-flash',
         color: '#4285f4',
-        bg: '#f3f7ff',
+        rgb: '66,133,244',
     },
     {
         id: 'deepseek',
@@ -43,7 +43,7 @@ const PROVIDERS = [
         models: ['deepseek-chat', 'deepseek-reasoner'],
         defaultModel: 'deepseek-chat',
         color: '#5b6af0',
-        bg: '#f4f5fe',
+        rgb: '91,106,240',
     },
     {
         id: 'grok',
@@ -53,21 +53,35 @@ const PROVIDERS = [
         models: ['grok-3', 'grok-3-mini'],
         defaultModel: 'grok-3',
         color: '#1d9bf0',
-        bg: '#f0f8ff',
+        rgb: '29,155,240',
     },
 ];
 
-const ProviderIcon = ({ id, size = 28 }) => {
-    const style = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: size, height: size };
-    if (id === 'openai')    return <span style={style}><Brain  size={size} color="#10a37f" /></span>;
-    if (id === 'anthropic') return <span style={style}><Stars  size={size} color="#d97757" /></span>;
-    if (id === 'google')    return <span style={style}><BrandGoogle size={size} color="#4285f4" /></span>;
-    if (id === 'deepseek')  return <span style={style}><Robot  size={size} color="#5b6af0" /></span>;
-    if (id === 'grok')      return <span style={style}><Bolt   size={size} color="#1d9bf0" /></span>;
-    return <span style={style}><Brain size={size} color="#6c757d" /></span>;
+// Detecta data-bs-theme no <html> e observa mudanças em tempo real
+const useDarkMode = () => {
+    const [dark, setDark] = useState(false);
+    useEffect(() => {
+        const check = () => setDark(document.documentElement.getAttribute('data-bs-theme') === 'dark');
+        check();
+        const obs = new MutationObserver(check);
+        obs.observe(document.documentElement, { attributes: true, attributeFilter: ['data-bs-theme'] });
+        return () => obs.disconnect();
+    }, []);
+    return dark;
+};
+
+const ProviderIcon = ({ id, size = 26 }) => {
+    const s = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: size, height: size };
+    if (id === 'openai')    return <span style={s}><Brain      size={size} color="#10a37f" /></span>;
+    if (id === 'anthropic') return <span style={s}><Stars      size={size} color="#d97757" /></span>;
+    if (id === 'google')    return <span style={s}><BrandGoogle size={size} color="#4285f4" /></span>;
+    if (id === 'deepseek')  return <span style={s}><Robot      size={size} color="#5b6af0" /></span>;
+    if (id === 'grok')      return <span style={s}><Bolt       size={size} color="#1d9bf0" /></span>;
+    return <span style={s}><Brain size={size} color="#6c757d" /></span>;
 };
 
 const ProviderCard = ({ provider, config, primaryProvider, onSave, onRemove, onSetPrimary, saving }) => {
+    const dark = useDarkMode();
     const [key, setKey] = useState('');
     const [model, setModel] = useState(provider.defaultModel);
     const [showKey, setShowKey] = useState(false);
@@ -84,40 +98,49 @@ const ProviderCard = ({ provider, config, primaryProvider, onSave, onRemove, onS
         setKey('');
     };
 
-    const borderStyle = isPrimary
-        ? { border: `2px solid ${provider.color}` }
-        : { border: '1px solid #dee2e6' };
+    // Cores adaptativas por modo
+    const headerBg   = dark ? `rgba(${provider.rgb}, 0.13)` : `rgba(${provider.rgb}, 0.07)`;
+    const headerBorder = dark ? `rgba(${provider.rgb}, 0.22)` : `rgba(${provider.rgb}, 0.15)`;
+    const cardBorder = isPrimary
+        ? `2px solid rgba(${provider.rgb}, ${dark ? '0.55' : '0.70'})`
+        : `1px solid rgba(${provider.rgb}, ${dark ? '0.18' : '0.12'})`;
 
     return (
-        <Card className="h-100" style={{ ...borderStyle, borderRadius: 12, overflow: 'hidden' }}>
-            {/* Header colorido */}
-            <div style={{ background: provider.bg, padding: '14px 16px', borderBottom: `1px solid ${isPrimary ? provider.color + '40' : '#f0f0f0'}` }}>
-                <div className="d-flex align-items-center gap-2">
+        <Card className="h-100" style={{ border: cardBorder, borderRadius: 14, overflow: 'hidden' }}>
+            {/* Header com cor do provider */}
+            <div style={{
+                background: headerBg,
+                padding: '14px 16px',
+                borderBottom: `1px solid ${headerBorder}`,
+            }}>
+                <div className="d-flex align-items-start gap-2">
                     <ProviderIcon id={provider.id} size={26} />
                     <div className="flex-grow-1 min-w-0">
-                        <div className="fw-semibold d-flex align-items-center gap-2 flex-wrap" style={{ fontSize: '0.92rem' }}>
+                        <div className="fw-semibold d-flex align-items-center gap-2 flex-wrap" style={{ fontSize: '0.9rem' }}>
                             {provider.label}
                             {isPrimary && (
-                                <Badge style={{ background: provider.color, fontSize: '0.65rem' }} className="fw-normal">
+                                <Badge style={{ background: provider.color, fontSize: '0.63rem', border: 'none' }} className="fw-normal">
                                     Principal
                                 </Badge>
                             )}
                             {isCurrent && !isPrimary && (
-                                <Badge bg="secondary" className="fw-normal" style={{ fontSize: '0.65rem' }}>
+                                <Badge bg="secondary" className="fw-normal" style={{ fontSize: '0.63rem' }}>
                                     Configurado
                                 </Badge>
                             )}
                         </div>
-                        <div className="text-muted" style={{ fontSize: '0.76rem', lineHeight: 1.3 }}>{provider.description}</div>
+                        <div className="text-muted" style={{ fontSize: '0.75rem', lineHeight: 1.4 }}>
+                            {provider.description}
+                        </div>
                     </div>
                 </div>
 
                 {isCurrent && config?.addedAt && (
-                    <div className="mt-2 d-flex align-items-center gap-1" style={{ fontSize: '0.74rem', color: '#6c757d' }}>
+                    <div className="d-flex align-items-center gap-1 mt-2" style={{ fontSize: '0.73rem', color: dark ? '#8d97b0' : '#6c757d' }}>
                         <Key size={11} />
                         <span>Adicionada em {new Date(config.addedAt).toLocaleDateString('pt-BR')}</span>
                         {config.model && (
-                            <Badge bg="light" text="dark" className="ms-auto border" style={{ fontSize: '0.7rem' }}>
+                            <Badge bg="secondary" className="ms-auto fw-normal" style={{ fontSize: '0.68rem', opacity: 0.85 }}>
                                 {config.model}
                             </Badge>
                         )}
@@ -125,10 +148,10 @@ const ProviderCard = ({ provider, config, primaryProvider, onSave, onRemove, onS
                 )}
             </div>
 
-            {/* Corpo do card */}
+            {/* Corpo */}
             <Card.Body className="d-flex flex-column gap-2 p-3">
                 <div>
-                    <Form.Label className="fw-medium mb-1" style={{ fontSize: '0.8rem' }}>
+                    <Form.Label className="fw-medium mb-1" style={{ fontSize: '0.79rem' }}>
                         {isCurrent ? 'Substituir chave' : 'Chave de API'}
                     </Form.Label>
                     <InputGroup size="sm">
@@ -151,12 +174,12 @@ const ProviderCard = ({ provider, config, primaryProvider, onSave, onRemove, onS
                 </div>
 
                 <div>
-                    <Form.Label className="fw-medium mb-1" style={{ fontSize: '0.8rem' }}>Modelo padrão</Form.Label>
+                    <Form.Label className="fw-medium mb-1" style={{ fontSize: '0.79rem' }}>Modelo padrão</Form.Label>
                     <Form.Select
                         size="sm"
                         value={model}
                         onChange={(e) => setModel(e.target.value)}
-                        style={{ fontSize: '0.8rem' }}
+                        style={{ fontSize: '0.79rem' }}
                     >
                         {provider.models.map(m => (
                             <option key={m} value={m}>{m}</option>
@@ -164,15 +187,22 @@ const ProviderCard = ({ provider, config, primaryProvider, onSave, onRemove, onS
                     </Form.Select>
                 </div>
 
-                {/* Ações */}
+                {/* Ações empilhadas */}
                 <div className="d-flex flex-column gap-1 mt-auto pt-1">
                     <Button
                         size="sm"
                         onClick={handleSave}
                         disabled={!key.trim() || saving}
-                        style={{ background: provider.color, border: 'none', fontSize: '0.8rem' }}
+                        style={{
+                            background: key.trim() ? `rgba(${provider.rgb}, ${dark ? '0.85' : '1'})` : undefined,
+                            borderColor: 'transparent',
+                            fontSize: '0.8rem',
+                        }}
+                        variant={key.trim() ? undefined : 'secondary'}
                     >
-                        {saving ? <Spinner size="sm" animation="border" className="me-1" /> : <Check size={13} className="me-1" />}
+                        {saving
+                            ? <Spinner size="sm" animation="border" className="me-1" />
+                            : <Check size={13} className="me-1" />}
                         {isCurrent ? 'Atualizar chave' : 'Salvar chave'}
                     </Button>
 
@@ -207,6 +237,7 @@ const ProviderCard = ({ provider, config, primaryProvider, onSave, onRemove, onS
 };
 
 const AiConfigBody = () => {
+    const dark = useDarkMode();
     const [config, setConfig] = useState(null);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -233,10 +264,7 @@ const AiConfigBody = () => {
     const handleSave = async (provider, key, model) => {
         setSaving(true);
         try {
-            await apiRequest(`/settings/ai-config/${provider}`, {
-                method: 'PUT',
-                body: { key, model },
-            });
+            await apiRequest(`/settings/ai-config/${provider}`, { method: 'PUT', body: { key, model } });
             showAlert('success', `Chave ${PROVIDERS.find(p => p.id === provider)?.label} salva.`);
             await loadConfig();
         } catch (err) {
@@ -263,10 +291,7 @@ const AiConfigBody = () => {
     const handleSetPrimary = async (provider) => {
         setSaving(true);
         try {
-            await apiRequest('/settings/ai-config/primary', {
-                method: 'POST',
-                body: { provider },
-            });
+            await apiRequest('/settings/ai-config/primary', { method: 'POST', body: { provider } });
             showAlert('success', `${PROVIDERS.find(p => p.id === provider)?.label} definido como provedor principal.`);
             await loadConfig();
         } catch (err) {
@@ -304,7 +329,14 @@ const AiConfigBody = () => {
             )}
 
             {anyConfigured && primary && (
-                <div className="mb-3 px-3 py-2 rounded d-flex align-items-center gap-2" style={{ background: primary.bg, border: `1px solid ${primary.color}30`, fontSize: '0.82rem' }}>
+                <div
+                    className="mb-3 px-3 py-2 rounded d-flex align-items-center gap-2"
+                    style={{
+                        background: `rgba(${primary.rgb}, ${dark ? '0.14' : '0.08'})`,
+                        border: `1px solid rgba(${primary.rgb}, ${dark ? '0.28' : '0.18'})`,
+                        fontSize: '0.82rem',
+                    }}
+                >
                     <ProviderIcon id={primary.id} size={16} />
                     <span>Provedor ativo: <strong>{primary.label}</strong> — modelo <strong>{config?.[primary.id]?.model || primary.defaultModel}</strong></span>
                 </div>
