@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { Card, Button, Form, Alert, Spinner, Badge, Row, Col, InputGroup } from 'react-bootstrap';
-import { Eye, EyeOff, Check, Trash, Key, Brain, BrandGoogle, Stars } from 'tabler-icons-react';
+import { Eye, EyeOff, Check, Trash, Key, Brain, BrandGoogle, Stars, Bolt, Robot } from 'tabler-icons-react';
 import { apiRequest } from '@/lib/api/client';
 
 const PROVIDERS = [
@@ -32,13 +32,34 @@ const PROVIDERS = [
         defaultModel: 'gemini-2.0-flash',
         color: '#4285f4',
     },
+    {
+        id: 'deepseek',
+        label: 'DeepSeek',
+        description: 'DeepSeek Chat e DeepSeek Reasoner',
+        placeholder: 'sk-...',
+        models: ['deepseek-chat', 'deepseek-reasoner'],
+        defaultModel: 'deepseek-chat',
+        color: '#5b6af0',
+    },
+    {
+        id: 'grok',
+        label: 'Grok (xAI)',
+        description: 'Grok-3 e Grok-3 Mini da xAI',
+        placeholder: 'xai-...',
+        models: ['grok-3', 'grok-3-mini'],
+        defaultModel: 'grok-3',
+        color: '#1d9bf0',
+    },
 ];
 
 const ProviderIcon = ({ id, size = 28 }) => {
     const style = { display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: size, height: size };
     if (id === 'openai') return <span style={style}><Brain size={size} color="#10a37f" /></span>;
     if (id === 'anthropic') return <span style={style}><Stars size={size} color="#d97757" /></span>;
-    return <span style={style}><BrandGoogle size={size} color="#4285f4" /></span>;
+    if (id === 'google') return <span style={style}><BrandGoogle size={size} color="#4285f4" /></span>;
+    if (id === 'deepseek') return <span style={style}><Robot size={size} color="#5b6af0" /></span>;
+    if (id === 'grok') return <span style={style}><Bolt size={size} color="#1d9bf0" /></span>;
+    return <span style={style}><Brain size={size} color="#6c757d" /></span>;
 };
 
 const ProviderCard = ({ provider, config, primaryProvider, onSave, onRemove, onSetPrimary, saving }) => {
@@ -252,7 +273,7 @@ const AiConfigBody = () => {
             <div className="mb-4">
                 <h4 className="fw-bold mb-1">Chaves de IA</h4>
                 <p className="text-muted mb-0" style={{ fontSize: '0.9rem' }}>
-                    Configure suas próprias chaves de API para OpenAI, Anthropic e Google Gemini.
+                    Configure suas próprias chaves de API para OpenAI, Anthropic, Google Gemini, DeepSeek e Grok.
                     Cada tenant usa suas chaves de forma isolada — você controla seus custos e limites diretamente.
                 </p>
             </div>
