@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { Card, Button, Form, Alert, Spinner, Badge, Col, Row, InputGroup } from 'react-bootstrap';
-import { Eye, EyeOff, Check, Trash, Key, Brain, BrandGoogle, Stars, Bolt, Robot } from 'tabler-icons-react';
+import { Eye, EyeOff, Check, Trash, Key, Brain, BrandGoogle, Stars, Bolt, Robot, Cpu } from 'tabler-icons-react';
 import { apiRequest } from '@/lib/api/client';
 
 const PROVIDERS = [
@@ -55,6 +55,16 @@ const PROVIDERS = [
         color: '#1d9bf0',
         rgb: '29,155,240',
     },
+    {
+        id: 'groq',
+        label: 'Groq',
+        description: 'LLaMA 3.3, Mixtral e Gemma via Groq Cloud',
+        placeholder: 'gsk_...',
+        models: ['llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768', 'gemma2-9b-it'],
+        defaultModel: 'llama-3.3-70b-versatile',
+        color: '#f55036',
+        rgb: '245,80,54',
+    },
 ];
 
 // Detecta data-bs-theme no <html> e observa mudanças em tempo real
@@ -77,6 +87,7 @@ const ProviderIcon = ({ id, size = 26 }) => {
     if (id === 'google')    return <span style={s}><BrandGoogle size={size} color="#4285f4" /></span>;
     if (id === 'deepseek')  return <span style={s}><Robot      size={size} color="#5b6af0" /></span>;
     if (id === 'grok')      return <span style={s}><Bolt       size={size} color="#1d9bf0" /></span>;
+    if (id === 'groq')      return <span style={s}><Cpu        size={size} color="#f55036" /></span>;
     return <span style={s}><Brain size={size} color="#6c757d" /></span>;
 };
 
