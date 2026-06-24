@@ -34,12 +34,14 @@ const STATUS_COLORS = {
 const STATUS_LABELS = { active: 'Online', paused: 'Pausado', draft: 'Rascunho', archived: 'Arquivado' };
 
 const WORKSPACE_SECTIONS = [
-  { key: 'SOUL',      label: 'SOUL.md',      icon: '✦', desc: 'Personalidade e valores' },
-  { key: 'IDENTITY',  label: 'IDENTITY.md',  icon: '👤', desc: 'Nome, branding e tom' },
   { key: 'AGENTS',    label: 'AGENTS.md',    icon: '⚙️', desc: 'Fluxos e comportamento' },
+  { key: 'SOUL',      label: 'SOUL.md',      icon: '✦',  desc: 'Personalidade e valores' },
   { key: 'TOOLS',     label: 'TOOLS.md',     icon: '🔧', desc: 'Ferramentas disponíveis' },
-  { key: 'MEMORY',    label: 'MEMORY.md',    icon: '💾', desc: 'Memória persistente' },
+  { key: 'IDENTITY',  label: 'IDENTITY.md',  icon: '👤', desc: 'Nome, branding e tom' },
   { key: 'USER',      label: 'USER.md',      icon: '👥', desc: 'Perfil do usuário' },
+  { key: 'HEARTBEAT', label: 'HEARTBEAT.md', icon: '💓', desc: 'Tarefas periódicas' },
+  { key: 'BOOTSTRAP', label: 'BOOTSTRAP.md', icon: '⚡', desc: 'Inicialização do agente' },
+  { key: 'MEMORY',    label: 'MEMORY.md',    icon: '💾', desc: 'Memória persistente' },
 ];
 
 const JUDGE_MODELS = [

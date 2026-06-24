@@ -55,3 +55,10 @@ export async function logout() {
   return await apiRequest('/auth/logout', { method: 'POST' });
 }
 
+export async function changePassword({ currentPassword, newPassword }) {
+  return await apiRequest('/auth/change-password', {
+    method: 'POST',
+    body: { currentPassword, newPassword },
+  });
+}
+
