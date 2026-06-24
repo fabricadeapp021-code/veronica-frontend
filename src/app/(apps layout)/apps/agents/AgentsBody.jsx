@@ -14,6 +14,7 @@ import {
   Image as ImageIcon,
   Link as LinkIcon,
   Lock,
+  MessageCircle,
   MessageSquare,
   MoreVertical,
   PauseCircle,
@@ -1671,6 +1672,190 @@ const AgentSkillsModal = ({ agent, onClose }) => {
   );
 };
 
+const TEMPLATE_DEFAULT_GREETINGS = {
+  venorica_clara_247: [
+    'Olá! Sou a Veronica, sua assistente comercial. Em que posso te ajudar hoje?',
+    'Oi! Aqui é a Veronica. Posso te ajudar a encontrar a solução certa para o seu negócio!',
+    'Olá! Veronica aqui. Me conta um pouco sobre o que você está buscando.',
+    'Oi, seja bem-vindo(a)! Sou a Veronica. Como posso ajudar você hoje?',
+    'Olá! Que bom ter você aqui. Sou a Veronica e estou à disposição. Por onde começamos?',
+  ],
+  real_estate_broker: [
+    'Olá! Sou a Ranny, consultora imobiliária. Está buscando imóvel para comprar, alugar ou investir?',
+    'Oi, tudo bem? Aqui é a Ranny. Me conta o que você procura: casa, apartamento, terreno?',
+    'Olá! Seja bem-vindo(a)! Sou a Ranny e estou aqui para te ajudar a encontrar o imóvel ideal.',
+    'Oi! Sou a Ranny, sua consultora de imóveis. Qual é o seu perfil de imóvel ideal?',
+    'Olá! Que bom falar com você! Sou a Ranny. Vamos encontrar juntos o imóvel perfeito para você?',
+  ],
+  timesheet_manager: [
+    'Olá! Sou o Max, assistente de timesheet. Vamos registrar suas horas de hoje?',
+    'Oi! Aqui é o Max. Pronto para lançar as horas trabalhadas no projeto de hoje?',
+    'Olá! Max aqui. Me informe o projeto e o período para registrar seu timesheet.',
+    'Oi! Sou o Max, seu assistente de controle de horas. Por qual projeto você quer começar?',
+    'Olá! Que bom ter você aqui. Sou o Max e vou te ajudar a manter seu timesheet em dia.',
+  ],
+  hospital_triage: [
+    'Olá! Sou a Sofia, assistente de triagem. Me conte o que está sentindo para eu te orientar.',
+    'Oi! Aqui é a Sofia. Estou aqui para te ajudar. Qual é o principal sintoma que você está sentindo?',
+    'Olá! Seja bem-vindo(a). Sou a Sofia. Me descreva o que está acontecendo e vamos verificar juntos.',
+    'Oi! Sou a Sofia, assistente de saúde. Para começar, há quanto tempo você está com esses sintomas?',
+    'Olá! Sofia aqui. Pode falar com tranquilidade — estou aqui para te orientar da melhor forma.',
+  ],
+  hospital_procurement: [
+    'Olá! Sou a Petra, agente de compras de OPME. Qual material você precisa cotar hoje?',
+    'Oi! Aqui é a Petra. Me informe o procedimento cirúrgico e vou iniciar a cotação de OPME.',
+    'Olá! Petra aqui. Para iniciar a cotação, preciso saber o material, quantidade e data prevista.',
+    'Oi! Sou a Petra, responsável por OPME. Pode enviar a solicitação que inicio o processo agora.',
+    'Olá! Que bom ter você por aqui. Sou a Petra e vou te ajudar a otimizar a cotação de materiais.',
+  ],
+  hospital_supply: [
+    'Olá! Sou o Vital, agente de supply chain. Qual é a necessidade de estoque hoje?',
+    'Oi! Aqui é o Vital. Me informe o medicamento ou material para verificar a disponibilidade.',
+    'Olá! Vital aqui. Pode enviar a solicitação de dispensação ou reposição que processo agora.',
+    'Oi! Sou o Vital, controle de suprimentos. Qual ala ou paciente precisa de atendimento?',
+    'Olá! Vital aqui para garantir que o estoque esteja sempre em dia. Como posso ajudar?',
+  ],
+  hospital_family_comm: [
+    'Olá! Sou a Clara, assistente de comunicação familiar. Como posso ajudar você hoje?',
+    'Oi! Aqui é a Clara. Estou aqui para manter você informado(a) sobre o seu familiar. O que precisa saber?',
+    'Olá! Clara aqui. Me informe o nome do paciente para eu te ajudar com as últimas atualizações.',
+    'Oi! Sou a Clara. Sei que momentos assim são difíceis. Estou aqui para ajudar com o que precisar.',
+    'Olá! Bem-vindo(a). Sou a Clara e vou te manter atualizado(a) sobre o estado do seu familiar.',
+  ],
+  hospital_glosa_guard: [
+    'Olá! Sou o Glosa Guard, agente de revisão de faturamento. Qual conta deseja revisar hoje?',
+    'Oi! Aqui é o Glosa Guard. Me envie a conta ou o número do procedimento para iniciar a revisão.',
+    'Olá! Glosa Guard aqui. Pronto para identificar glosas e recuperar receitas antes do fechamento.',
+    'Oi! Sou o Glosa Guard. Qual período de faturamento vamos auditar agora?',
+    'Olá! Bem-vindo(a). Glosa Guard aqui para garantir que nenhuma receita seja perdida no faturamento.',
+  ],
+};
+
+/* ─── Greeting Messages Modal ─── */
+const GreetingMessagesModal = ({ agent, onClose, onSave }) => {
+  const [messages, setMessages] = useState(agent.greetingMessages || []);
+  const [saving, setSaving] = useState(false);
+  const [loadingDefaults, setLoadingDefaults] = useState(false);
+  const [err, setErr] = useState('');
+
+  // Auto-load defaults when agent has no messages configured yet.
+  // Uses the local map first (instant), then tries the templates API as a secondary source.
+  useEffect(() => {
+    if ((agent.greetingMessages?.length ?? 0) > 0) return;
+    if (!agent.templateKey) return;
+
+    // 1. Instant: use hardcoded defaults if available
+    const localDefaults = TEMPLATE_DEFAULT_GREETINGS[agent.templateKey];
+    if (localDefaults?.length > 0) {
+      setMessages(localDefaults);
+      return;
+    }
+
+    // 2. Fallback: fetch from API (for custom templates seeded after deploy)
+    setLoadingDefaults(true);
+    apiRequest('/agents/templates')
+      .then((res) => {
+        const tpl = (res?.templates || []).find((t) => t.key === agent.templateKey);
+        if (tpl?.greetingMessages?.length > 0) {
+          setMessages(tpl.greetingMessages);
+        }
+      })
+      .catch(() => undefined)
+      .finally(() => setLoadingDefaults(false));
+  }, []);
+
+  const handleChange = (idx, value) => {
+    setMessages((prev) => prev.map((m, i) => (i === idx ? value : m)));
+  };
+
+  const handleAdd = () => {
+    if (messages.length >= 10) return;
+    setMessages((prev) => [...prev, '']);
+  };
+
+  const handleRemove = (idx) => {
+    setMessages((prev) => prev.filter((_, i) => i !== idx));
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setErr('');
+    try {
+      const cleaned = messages.map((m) => m.trim()).filter(Boolean);
+      const updated = await apiRequest(`/agents/${agent.id}/greeting-messages`, {
+        method: 'PATCH',
+        body: { messages: cleaned },
+      });
+      onSave(updated);
+      toast.success('Saudações salvas!');
+    } catch (e) {
+      setErr(e?.message || 'Erro ao salvar');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal show onHide={onClose} centered size="md">
+      <Modal.Header closeButton>
+        <Modal.Title className="fs-6 fw-semibold">
+          <MessageCircle size={16} className="me-2" />
+          Saudações — {agent.name}
+        </Modal.Title>
+      </Modal.Header>
+      <Modal.Body>
+        <p className="text-muted small mb-3">
+          Uma dessas frases será enviada automaticamente quando um cliente iniciar uma conversa nova.
+        </p>
+        {err && <div className="alert alert-danger py-2 small">{err}</div>}
+        {loadingDefaults ? (
+          <div className="text-center py-3">
+            <Spinner animation="border" size="sm" className="me-2" />
+            <span className="text-muted small">Carregando sugestões...</span>
+          </div>
+        ) : (
+          <>
+            <div className="d-flex flex-column gap-2">
+              {messages.map((msg, idx) => (
+                <div key={idx} className="d-flex gap-2 align-items-start">
+                  <Form.Control
+                    as="textarea"
+                    rows={2}
+                    value={msg}
+                    onChange={(e) => handleChange(idx, e.target.value)}
+                    placeholder={`Frase ${idx + 1}`}
+                    style={{ fontSize: 13, resize: 'vertical' }}
+                  />
+                  <Button
+                    variant="outline-danger"
+                    size="sm"
+                    className="flex-shrink-0 mt-1"
+                    onClick={() => handleRemove(idx)}
+                    title="Remover"
+                  >
+                    <X size={13} />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            {messages.length < 10 && (
+              <Button variant="outline-secondary" size="sm" className="mt-3" onClick={handleAdd}>
+                <Plus size={13} className="me-1" />Adicionar frase
+              </Button>
+            )}
+          </>
+        )}
+      </Modal.Body>
+      <Modal.Footer>
+        <Button variant="secondary" size="sm" onClick={onClose} disabled={saving}>Cancelar</Button>
+        <Button variant="primary" size="sm" onClick={handleSave} disabled={saving}>
+          {saving ? <Spinner animation="border" size="sm" /> : 'Salvar'}
+        </Button>
+      </Modal.Footer>
+    </Modal>
+  );
+};
+
 /* ─── Main Body ─── */
 const AgentsBody = () => {
   const [agents, setAgents] = useState([]);
@@ -1680,6 +1865,7 @@ const AgentsBody = () => {
   const [playgroundAgent, setPlaygroundAgent] = useState(null);
   const [accessAgent, setAccessAgent] = useState(null);
   const [knowledgeAgent, setKnowledgeAgent] = useState(null);
+  const [greetingAgent, setGreetingAgent] = useState(null);
   const [agentProviders, setAgentProviders] = useState({});
 
   const load = useCallback(async () => {
@@ -1779,6 +1965,16 @@ const AgentsBody = () => {
       )}
       {knowledgeAgent && (
         <AgentKnowledgeModal agent={knowledgeAgent} onClose={() => setKnowledgeAgent(null)} />
+      )}
+      {greetingAgent && (
+        <GreetingMessagesModal
+          agent={greetingAgent}
+          onClose={() => setGreetingAgent(null)}
+          onSave={(updated) => {
+            setAgents((prev) => prev.map((a) => a.id === greetingAgent.id ? { ...a, greetingMessages: updated.greetingMessages } : a));
+            setGreetingAgent(null);
+          }}
+        />
       )}
 
       <div className="fm-body">
@@ -1924,6 +2120,14 @@ const AgentsBody = () => {
                             onClick={() => setAccessAgent(agent)}
                           >
                             <Shield size={13} className="me-1" />Acesso
+                          </Button>
+                          <Button
+                            variant={(agent.greetingMessages?.length ?? 0) > 0 ? 'outline-primary' : 'outline-secondary'}
+                            size="sm"
+                            onClick={() => setGreetingAgent(agent)}
+                            title={`Saudações (${agent.greetingMessages?.length ?? 0} configuradas)`}
+                          >
+                            <MessageCircle size={13} className="me-1" />Saudação
                           </Button>
 
                           {/* Toggle busca web */}

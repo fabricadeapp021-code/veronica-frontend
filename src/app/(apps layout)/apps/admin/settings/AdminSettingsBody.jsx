@@ -6,7 +6,7 @@ import { Col, Row, Form, Button, Alert, Spinner, Nav, Tab, Card } from 'react-bo
 import SimpleBar from 'simplebar-react';
 import {
   Save, Menu, Briefcase, Shield, Bell, Lock,
-  CheckCircle, AlertTriangle, MapPin, Phone, Mail, Hash, Download, Trash2,
+  CheckCircle, AlertTriangle, MapPin, Phone, Mail, Hash, Download, Trash2, User, Eye, EyeOff,
 } from 'react-feather';
 import Link from 'next/link';
 import AdminSidebar from '../../users/AdminSidebar';
@@ -14,6 +14,7 @@ import {
   getTenantSettings, updateTenantSettings,
   exportTenantData, requestTenantDataDeletion,
 } from '@/lib/api/services/tenant';
+import { changePassword as changePasswordApi } from '@/lib/api/services/auth';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useRouter } from 'next/navigation';
 import PartyProfileSettingsBody from './PartyProfileSettingsBody';
@@ -35,6 +36,11 @@ const AdminSettingsBody = () => {
   const [activeTab,   setActiveTab]   = useState('organization');
   const [privacyBusy, setPrivacyBusy] = useState(null);
   const [privacyMsg,  setPrivacyMsg]  = useState(null);
+
+  const [pwdForm,    setPwdForm]    = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [pwdSaving,  setPwdSaving]  = useState(false);
+  const [pwdMsg,     setPwdMsg]     = useState(null);
+  const [pwdShow,    setPwdShow]    = useState({ current: false, next: false, confirm: false });
 
   const [settings, setSettings] = useState({
     organization: {
@@ -148,6 +154,38 @@ const AdminSettingsBody = () => {
     }
   };
 
+  // ── trocar senha ──────────────────────────────────────────────────────────
+  const handleChangePassword = async () => {
+    setPwdMsg(null);
+    if (!pwdForm.currentPassword || !pwdForm.newPassword || !pwdForm.confirmPassword) {
+      setPwdMsg({ type: 'warning', text: 'Preencha todos os campos.' });
+      return;
+    }
+    if (pwdForm.newPassword.length < 8) {
+      setPwdMsg({ type: 'warning', text: 'A nova senha deve ter no mínimo 8 caracteres.' });
+      return;
+    }
+    if (pwdForm.newPassword !== pwdForm.confirmPassword) {
+      setPwdMsg({ type: 'warning', text: 'A nova senha e a confirmação não coincidem.' });
+      return;
+    }
+    try {
+      setPwdSaving(true);
+      await changePasswordApi({ currentPassword: pwdForm.currentPassword, newPassword: pwdForm.newPassword });
+      setPwdMsg({ type: 'success', text: 'Senha alterada com sucesso!' });
+      setPwdForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+    } catch (err) {
+      const msg = err?.message ?? '';
+      if (msg.includes('incorreta') || msg.includes('401') || msg.includes('Unauthorized')) {
+        setPwdMsg({ type: 'danger', text: 'Senha atual incorreta.' });
+      } else {
+        setPwdMsg({ type: 'danger', text: msg || 'Erro ao alterar senha.' });
+      }
+    } finally {
+      setPwdSaving(false);
+    }
+  };
+
   // ── helpers de formato ─────────────────────────────────────────────────────
   const fmtCNPJ = (v = '') => {
     const d = String(v).replace(/\D/g, '').slice(0, 14);
@@ -222,7 +260,7 @@ const AdminSettingsBody = () => {
                 </nav>
               </div>
               <div className="contact-options-wrap">
-                {activeTab !== 'appearance' && (
+                {activeTab !== 'appearance' && activeTab !== 'account' && (
                   <Button variant="primary" onClick={handleSave} disabled={saving || loading}>
                     {saving
                       ? <><Spinner size="sm" className="me-2" />Salvando…</>
@@ -279,6 +317,11 @@ const AdminSettingsBody = () => {
                               <Nav.Item>
                                 <Nav.Link eventKey="appearance">
                                   <span className="me-2">🎨</span>Aparência
+                                </Nav.Link>
+                              </Nav.Item>
+                              <Nav.Item>
+                                <Nav.Link eventKey="account">
+                                  <User size={15} className="me-2" />Minha Conta
                                 </Nav.Link>
                               </Nav.Item>
                             </Nav>
@@ -577,6 +620,103 @@ const AdminSettingsBody = () => {
                                   <span>🎨</span> Aparência e Marca
                                 </h5>
                                 <PartyProfileSettingsBody />
+                              </Tab.Pane>
+
+                              {/* ── Minha Conta ── */}
+                              <Tab.Pane eventKey="account">
+                                <h5 className="fw-bold mb-1 d-flex align-items-center gap-2">
+                                  <User size={18} className="text-primary" /> Minha Conta
+                                </h5>
+                                <p className="small text-muted mb-4">
+                                  Logado como <strong>{user?.email}</strong>
+                                </p>
+
+                                <Card className="card-border" style={{ maxWidth: 480 }}>
+                                  <Card.Header className="small fw-semibold">Alterar Senha</Card.Header>
+                                  <Card.Body>
+                                    {pwdMsg && (
+                                      <Alert variant={pwdMsg.type} className="small py-2 d-flex align-items-center">
+                                        {pwdMsg.type === 'success'
+                                          ? <CheckCircle size={15} className="me-2 flex-shrink-0" />
+                                          : <AlertTriangle size={15} className="me-2 flex-shrink-0" />}
+                                        {pwdMsg.text}
+                                      </Alert>
+                                    )}
+
+                                    <Form.Group className="mb-3">
+                                      <Form.Label className="small fw-semibold">Senha atual</Form.Label>
+                                      <div className="input-group">
+                                        <Form.Control
+                                          type={pwdShow.current ? 'text' : 'password'}
+                                          value={pwdForm.currentPassword}
+                                          onChange={e => setPwdForm(p => ({ ...p, currentPassword: e.target.value }))}
+                                          placeholder="Digite sua senha atual"
+                                          autoComplete="current-password"
+                                        />
+                                        <button
+                                          type="button"
+                                          className="btn btn-outline-secondary"
+                                          onClick={() => setPwdShow(s => ({ ...s, current: !s.current }))}
+                                          tabIndex={-1}
+                                        >
+                                          {pwdShow.current ? <EyeOff size={15} /> : <Eye size={15} />}
+                                        </button>
+                                      </div>
+                                    </Form.Group>
+
+                                    <Form.Group className="mb-3">
+                                      <Form.Label className="small fw-semibold">Nova senha</Form.Label>
+                                      <div className="input-group">
+                                        <Form.Control
+                                          type={pwdShow.next ? 'text' : 'password'}
+                                          value={pwdForm.newPassword}
+                                          onChange={e => setPwdForm(p => ({ ...p, newPassword: e.target.value }))}
+                                          placeholder="Mínimo 8 caracteres"
+                                          autoComplete="new-password"
+                                        />
+                                        <button
+                                          type="button"
+                                          className="btn btn-outline-secondary"
+                                          onClick={() => setPwdShow(s => ({ ...s, next: !s.next }))}
+                                          tabIndex={-1}
+                                        >
+                                          {pwdShow.next ? <EyeOff size={15} /> : <Eye size={15} />}
+                                        </button>
+                                      </div>
+                                    </Form.Group>
+
+                                    <Form.Group className="mb-4">
+                                      <Form.Label className="small fw-semibold">Confirmar nova senha</Form.Label>
+                                      <div className="input-group">
+                                        <Form.Control
+                                          type={pwdShow.confirm ? 'text' : 'password'}
+                                          value={pwdForm.confirmPassword}
+                                          onChange={e => setPwdForm(p => ({ ...p, confirmPassword: e.target.value }))}
+                                          placeholder="Repita a nova senha"
+                                          autoComplete="new-password"
+                                        />
+                                        <button
+                                          type="button"
+                                          className="btn btn-outline-secondary"
+                                          onClick={() => setPwdShow(s => ({ ...s, confirm: !s.confirm }))}
+                                          tabIndex={-1}
+                                        >
+                                          {pwdShow.confirm ? <EyeOff size={15} /> : <Eye size={15} />}
+                                        </button>
+                                      </div>
+                                    </Form.Group>
+
+                                    <Button
+                                      variant="primary"
+                                      onClick={handleChangePassword}
+                                      disabled={pwdSaving}
+                                    >
+                                      {pwdSaving
+                                        ? <><Spinner size="sm" className="me-2" />Salvando…</>
+                                        : <><Lock size={14} className="me-2" />Alterar senha</>}
+                                    </Button>
+                                  </Card.Body>
+                                </Card>
                               </Tab.Pane>
 
                             </Tab.Content>
