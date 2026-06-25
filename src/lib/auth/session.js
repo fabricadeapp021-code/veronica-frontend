@@ -81,32 +81,6 @@ export function clearTenantId() {
   safeRemove(TENANT_ID_KEY);
 }
 
-// ─── Agents list cache ───────────────────────────────────────────────────────
-const AGENTS_CACHE_KEY = 'voxx.agents_cache';
-const AGENTS_CACHE_TTL = 30 * 1000; // 30s
-
-export function getCachedAgents(tenantId) {
-  const raw = safeGet(AGENTS_CACHE_KEY);
-  if (!raw) return null;
-  try {
-    const { data, ts, tid } = JSON.parse(raw);
-    if (tid !== tenantId) return null;
-    if (Date.now() - ts > AGENTS_CACHE_TTL) return null;
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-export function setCachedAgents(tenantId, data) {
-  if (!tenantId || !data) return;
-  safeSet(AGENTS_CACHE_KEY, JSON.stringify({ data, ts: Date.now(), tid: tenantId }));
-}
-
-export function clearCachedAgents() {
-  safeRemove(AGENTS_CACHE_KEY);
-}
-
 // ─── Theme cache ────────────────────────────────────────────────────────────
 const THEME_CACHE_KEY = 'voxx.theme';
 const THEME_CACHE_TTL = 60 * 60 * 1000; // 1 hora em ms

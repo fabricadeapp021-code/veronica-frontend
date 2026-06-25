@@ -1,5 +1,6 @@
 'use client';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { Alert, Badge, Button, Card, Col, Dropdown, Form, InputGroup, Modal, Row, Spinner } from 'react-bootstrap';
 import SimpleBar from 'simplebar-react';
@@ -35,7 +36,7 @@ import {
 } from 'react-feather';
 import { toast } from 'react-toastify';
 import { apiRequest, fetchStream } from '@/lib/api/client';
-import { getAccessToken, getCachedAgents, setCachedAgents, clearCachedAgents, getTenantId } from '@/lib/auth/session';
+import { getAccessToken } from '@/lib/auth/session';
 import { useColorMode } from '@/hooks/useColorMode';
 import { AgentProviderIcons } from '@/lib/integrations/providerMeta';
 
@@ -1858,52 +1859,26 @@ const GreetingMessagesModal = ({ agent, onClose, onSave }) => {
 
 /* ─── Main Body ─── */
 const AgentsBody = () => {
-  const [agents, setAgents] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
   const [playgroundAgent, setPlaygroundAgent] = useState(null);
   const [accessAgent, setAccessAgent] = useState(null);
   const [knowledgeAgent, setKnowledgeAgent] = useState(null);
   const [greetingAgent, setGreetingAgent] = useState(null);
-  const [agentProviders, setAgentProviders] = useState({});
 
-  const load = useCallback(async ({ force = false } = {}) => {
-    try {
-      setLoading(true);
-      setError('');
+  const { data: agentsData, isLoading: loading } = useQuery({
+    queryKey: ['agents'],
+    queryFn: () => apiRequest('/agents'),
+  });
 
-      const tenantId = getTenantId();
+  const agents = agentsData?.agents ?? [];
 
-      if (!force) {
-        const cached = getCachedAgents(tenantId);
-        if (cached) {
-          setAgents(cached.agents);
-          setAgentProviders(cached.providerMap);
-          setLoading(false);
-          return;
-        }
-      }
-
-      const agentsResponse = await apiRequest('/agents');
-      const list = agentsResponse?.agents || [];
-
-      const providerMap = {};
-      list.forEach((a) => {
-        providerMap[a.id] = a.providerKeys || [];
-      });
-
-      setAgents(list);
-      setAgentProviders(providerMap);
-      setCachedAgents(tenantId, { agents: list, providerMap });
-    } catch (err) {
-      setError(err?.message || 'Erro ao carregar funcionários IA.');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
+  const agentProviders = useMemo(() => {
+    const map = {};
+    agents.forEach((a) => { map[a.id] = a.providerKeys ?? []; });
+    return map;
+  }, [agents]);
 
   const stats = useMemo(() => ({
     total:  agents.length,
@@ -1925,8 +1900,7 @@ const AgentsBody = () => {
     try {
       setError('');
       await apiRequest(`/agents/${agent.id}/${action}`, { method: 'POST' });
-      clearCachedAgents();
-      await load({ force: true });
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
     } catch (err) {
       setError(err?.message || 'Erro ao atualizar funcionário IA.');
     }
@@ -1937,8 +1911,7 @@ const AgentsBody = () => {
     try {
       setError('');
       await apiRequest(`/agents/${agent.id}`, { method: 'DELETE' });
-      clearCachedAgents();
-      await load({ force: true });
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
     } catch (err) {
       setError(err?.message || 'Erro ao arquivar funcionário IA.');
     }
@@ -1946,11 +1919,15 @@ const AgentsBody = () => {
 
   const toggleWebSearch = async (agent) => {
     const next = !agent.webSearchEnabled;
-    setAgents((prev) => prev.map((a) => a.id === agent.id ? { ...a, webSearchEnabled: next } : a));
+    const patch = (enabled) =>
+      queryClient.setQueryData(['agents'], (old) =>
+        old ? { ...old, agents: old.agents.map((a) => a.id === agent.id ? { ...a, webSearchEnabled: enabled } : a) } : old,
+      );
+    patch(next);
     try {
       await apiRequest(`/agents/${agent.id}`, { method: 'PATCH', body: { webSearchEnabled: next } });
     } catch {
-      setAgents((prev) => prev.map((a) => a.id === agent.id ? { ...a, webSearchEnabled: !next } : a));
+      patch(!next);
     }
   };
 
@@ -1964,7 +1941,9 @@ const AgentsBody = () => {
           agent={accessAgent}
           onClose={() => setAccessAgent(null)}
           onModeChange={(mode) =>
-            setAgents((prev) => prev.map((a) => a.id === accessAgent.id ? { ...a, accessMode: mode } : a))
+            queryClient.setQueryData(['agents'], (old) =>
+              old ? { ...old, agents: old.agents.map((a) => a.id === accessAgent.id ? { ...a, accessMode: mode } : a) } : old,
+            )
           }
         />
       )}
@@ -1976,7 +1955,9 @@ const AgentsBody = () => {
           agent={greetingAgent}
           onClose={() => setGreetingAgent(null)}
           onSave={(updated) => {
-            setAgents((prev) => prev.map((a) => a.id === greetingAgent.id ? { ...a, greetingMessages: updated.greetingMessages } : a));
+            queryClient.setQueryData(['agents'], (old) =>
+              old ? { ...old, agents: old.agents.map((a) => a.id === greetingAgent.id ? { ...a, greetingMessages: updated.greetingMessages } : a) } : old,
+            );
             setGreetingAgent(null);
           }}
         />
