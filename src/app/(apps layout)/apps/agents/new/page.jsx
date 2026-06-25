@@ -4,10 +4,12 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Alert, Badge, Button, Card, Col, Row, Spinner } from 'react-bootstrap';
 import { ArrowLeft, Plus } from 'react-feather';
+import { useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '@/lib/api/client';
 
 const NewAgentPage = () => {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [hiring, setHiring] = useState(null);
@@ -53,6 +55,7 @@ const NewAgentPage = () => {
           config: { tone: template.defaultConfig?.tone || '' },
         },
       });
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
       router.push('/apps/agents');
     } catch (err) {
       setError(err?.message || 'Erro ao contratar funcionário IA.');

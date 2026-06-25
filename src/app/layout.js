@@ -2,6 +2,7 @@
 import { GlobalStateProvider } from '@/context/GolobalStateProvider';
 import { AuthProvider } from '@/lib/auth/AuthProvider';
 import { ThemeProvider } from '@/context/ThemeProvider';
+import QueryProvider from '@/lib/query/QueryProvider';
 import 'bootstrap/dist/css/bootstrap.min.css';
 import 'react-perfect-scrollbar/dist/css/styles.css';
 import '@/styles/scss/style.scss';
@@ -491,7 +492,9 @@ export default function RootLayout({ children }) {
       <body>
         <GlobalStateProvider>
           <AuthProvider>
-            <ThemeProvider>{children}</ThemeProvider>
+            <QueryProvider>
+              <ThemeProvider>{children}</ThemeProvider>
+            </QueryProvider>
           </AuthProvider>
         </GlobalStateProvider>
       </body>
