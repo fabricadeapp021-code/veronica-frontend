@@ -35,7 +35,7 @@ import {
 } from 'react-feather';
 import { toast } from 'react-toastify';
 import { apiRequest, fetchStream } from '@/lib/api/client';
-import { getAccessToken } from '@/lib/auth/session';
+import { getAccessToken, getCachedAgents, setCachedAgents, clearCachedAgents, getTenantId } from '@/lib/auth/session';
 import { useColorMode } from '@/hooks/useColorMode';
 import { AgentProviderIcons } from '@/lib/integrations/providerMeta';
 
@@ -1868,31 +1868,34 @@ const AgentsBody = () => {
   const [greetingAgent, setGreetingAgent] = useState(null);
   const [agentProviders, setAgentProviders] = useState({});
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ force = false } = {}) => {
     try {
       setLoading(true);
       setError('');
+
+      const tenantId = getTenantId();
+
+      if (!force) {
+        const cached = getCachedAgents(tenantId);
+        if (cached) {
+          setAgents(cached.agents);
+          setAgentProviders(cached.providerMap);
+          setLoading(false);
+          return;
+        }
+      }
+
       const agentsResponse = await apiRequest('/agents');
       const list = agentsResponse?.agents || [];
-      setAgents(list);
 
-      const integrationResults = await Promise.allSettled(
-        list.map((a) => apiRequest(`/agents/${a.id}/integrations`))
-      );
-      const map = {};
-      list.forEach((a, i) => {
-        const r = integrationResults[i];
-        if (r.status === 'fulfilled') {
-          const items = r.value?.integrations || r.value || [];
-          map[a.id] = items
-            .filter((it) => it.enabled !== false)
-            .map((it) => it.providerKey)
-            .filter(Boolean);
-        } else {
-          map[a.id] = [];
-        }
+      const providerMap = {};
+      list.forEach((a) => {
+        providerMap[a.id] = a.providerKeys || [];
       });
-      setAgentProviders(map);
+
+      setAgents(list);
+      setAgentProviders(providerMap);
+      setCachedAgents(tenantId, { agents: list, providerMap });
     } catch (err) {
       setError(err?.message || 'Erro ao carregar funcionários IA.');
     } finally {
@@ -1922,7 +1925,8 @@ const AgentsBody = () => {
     try {
       setError('');
       await apiRequest(`/agents/${agent.id}/${action}`, { method: 'POST' });
-      await load();
+      clearCachedAgents();
+      await load({ force: true });
     } catch (err) {
       setError(err?.message || 'Erro ao atualizar funcionário IA.');
     }
@@ -1933,7 +1937,8 @@ const AgentsBody = () => {
     try {
       setError('');
       await apiRequest(`/agents/${agent.id}`, { method: 'DELETE' });
-      await load();
+      clearCachedAgents();
+      await load({ force: true });
     } catch (err) {
       setError(err?.message || 'Erro ao arquivar funcionário IA.');
     }
