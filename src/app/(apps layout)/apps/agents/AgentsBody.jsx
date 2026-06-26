@@ -1858,10 +1858,13 @@ const GreetingMessagesModal = ({ agent, onClose, onSave }) => {
 };
 
 /* ─── Main Body ─── */
+const PAGE_SIZE = 12;
+
 const AgentsBody = () => {
   const queryClient = useQueryClient();
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
   const [playgroundAgent, setPlaygroundAgent] = useState(null);
   const [accessAgent, setAccessAgent] = useState(null);
   const [knowledgeAgent, setKnowledgeAgent] = useState(null);
@@ -1895,6 +1898,13 @@ const AgentsBody = () => {
         .some((v) => String(v).toLowerCase().includes(term)),
     );
   }, [agents, search]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [search]);
+
+  const totalPages = Math.ceil(filteredAgents.length / PAGE_SIZE);
+  const pagedAgents = filteredAgents.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const setAgentStatus = async (agent, action) => {
     try {
@@ -1968,16 +1978,32 @@ const AgentsBody = () => {
           <div className="container-fluid px-4 py-4">
 
             {/* Header */}
-            <div className="d-flex align-items-center justify-content-between mb-4">
+            <div className="d-flex align-items-center justify-content-between gap-3 mb-4">
               <div>
                 <h4 className="fw-bold mb-0 d-flex align-items-center gap-2">
                   <Users size={20} className="text-primary" /> Funcionários IA
                 </h4>
-                <small className="text-muted">Gerencie a sua força de trabalho inteligente</small>
+                <small>
+                  <span className="text-muted">{loading ? '…' : stats.total} agentes</span>
+                  <span className="text-muted"> · </span>
+                  <span className="text-success">{loading ? '…' : stats.active} ativos</span>
+                  <span className="text-muted"> · </span>
+                  <span className="text-warning">{loading ? '…' : stats.paused} pausados</span>
+                </small>
               </div>
-              <Button as={Link} href="/apps/agents/new" variant="primary" className="d-flex align-items-center gap-2">
-                <UserPlus size={16} /> Contratar Funcionário IA
-              </Button>
+              <div className="d-flex align-items-center gap-2 flex-shrink-0">
+                <InputGroup style={{ width: 240 }}>
+                  <InputGroup.Text><Search size={15} /></InputGroup.Text>
+                  <Form.Control
+                    placeholder="Buscar…"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                  />
+                </InputGroup>
+                <Button as={Link} href="/apps/agents/new" variant="primary" className="d-flex align-items-center gap-2" style={{ whiteSpace: 'nowrap' }}>
+                  <UserPlus size={16} /> Contratar Funcionário IA
+                </Button>
+              </div>
             </div>
 
             {error && (
@@ -1985,39 +2011,6 @@ const AgentsBody = () => {
                 {error}
               </Alert>
             )}
-
-            {/* KPIs */}
-            <Row className="g-3 mb-4">
-              {[
-                { label: 'Total',    value: stats.total,  color: 'primary', icon: <Users     size={18} /> },
-                { label: 'Ativos',   value: stats.active, color: 'success', icon: <PlayCircle size={18} /> },
-                { label: 'Pausados', value: stats.paused, color: 'warning', icon: <PauseCircle size={18} /> },
-              ].map((k) => (
-                <Col key={k.label} xs={6} md={4}>
-                  <Card className="card-border text-center">
-                    <Card.Body className="py-3">
-                      <div className={`text-${k.color} mb-1`}>{k.icon}</div>
-                      <h3 className={`fw-bold text-${k.color} mb-0`}>{loading ? '…' : k.value}</h3>
-                      <small className="text-muted">{k.label}</small>
-                    </Card.Body>
-                  </Card>
-                </Col>
-              ))}
-            </Row>
-
-            {/* Busca */}
-            <Card className="card-border mb-4">
-              <Card.Body className="py-2">
-                <InputGroup>
-                  <InputGroup.Text><Search size={15} /></InputGroup.Text>
-                  <Form.Control
-                    placeholder="Buscar por nome, cargo ou template…"
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                  />
-                </InputGroup>
-              </Card.Body>
-            </Card>
 
             {/* Cards */}
             {loading ? (
@@ -2041,8 +2034,9 @@ const AgentsBody = () => {
                 </Card.Body>
               </Card>
             ) : (
-              <Row className="g-3 mb-5">
-                {filteredAgents.map((agent) => (
+              <>
+              <Row className="g-3 mb-3">
+                {pagedAgents.map((agent) => (
                   <Col xl={4} md={6} key={agent.id}>
                     <Card className="card-border h-100">
                       <Card.Body>
@@ -2170,6 +2164,29 @@ const AgentsBody = () => {
                   </Col>
                 ))}
               </Row>
+
+              {totalPages > 1 && (
+                <div className="d-flex align-items-center justify-content-center gap-3 mb-5">
+                  <Button
+                    variant="outline-secondary"
+                    size="sm"
+                    disabled={page <= 1}
+                    onClick={() => setPage((p) => p - 1)}
+                  >
+                    ← Anterior
+                  </Button>
+                  <small className="text-muted">Página {page} de {totalPages}</small>
+                  <Button
+                    variant="outline-secondary"
+                    size="sm"
+                    disabled={page >= totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                  >
+                    Próxima →
+                  </Button>
+                </div>
+              )}
+              </>
             )}
           </div>
         </SimpleBar>

@@ -1,48 +1,79 @@
 'use client'
-import Image from 'next/image';
 import Link from 'next/link';
-import { Button, Col, Container, Row } from 'react-bootstrap';
-
-//Image
-import fatalErrorImg from '@/assets/img/macaroni-fatal-error.png';
 
 const Error404 = () => {
     return (
-        <div className="hk-wrapper hk-pg-auth">
-            <div className="hk-pg-wrapper">
-                <Container>
-                    <div className="hk-pg-body">
-                        <Row>
-                            <Col xl={7} lg={6} className="d-lg-block d-none">
-                                <div className="auth-content py-md-0 py-8">
-                                    <Row>
-                                        <Col xl={12} className="text-center">
-                                            <Image src={fatalErrorImg} className="img-fluid w-sm-80 w-50" alt="login" />
-                                            <p className="p-xs mt-5 text-light">Illustrations powered by <a href="https://icons8.com/ouch/" target="_blank" className="text-light" rel="noreferrer"><u>Icons8</u></a></p>
-                                        </Col>
-                                    </Row>
-                                </div>
-                            </Col>
-                            <Col xl={5} lg={6} md={7} sm={10}>
-                                <div className="auth-content py-8">
-                                    <div className="w-100">
-                                        <Row>
-                                            <Col xxl={9} xl={8} lg={11}>
-                                                <h1 className="display-4 fw-bold mb-2">404</h1>
-                                                <p className="p-lg">Sorry, the requested page cannot be found. Try finding with another name.</p>
-                                                <Button variant="primary" as={Link} href="/" className="mt-4">Return to app</Button>
-                                            </Col>
-                                        </Row>
-                                    </div>
-                                </div>
-                            </Col>
-                        </Row>
-                    </div>
-                </Container>
+        <div style={{
+            minHeight: '100vh',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '2rem',
+        }}>
+            <div style={{ textAlign: 'center', maxWidth: '480px', width: '100%' }}>
+
+                {/* Glyph visual */}
+                <div style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'center' }}>
+                    <svg width="80" height="80" viewBox="0 0 80 80" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="40" cy="40" r="38" stroke="#3b82f6" strokeWidth="2" strokeDasharray="6 4" opacity="0.35" />
+                        <circle cx="40" cy="40" r="26" stroke="#3b82f6" strokeWidth="1.5" opacity="0.2" />
+                        <path d="M40 22 L40 42" stroke="#3b82f6" strokeWidth="3" strokeLinecap="round" />
+                        <circle cx="40" cy="52" r="3" fill="#3b82f6" />
+                    </svg>
+                </div>
+
+                {/* 404 number */}
+                <div style={{
+                    fontSize: '7rem',
+                    fontWeight: 800,
+                    lineHeight: 1,
+                    letterSpacing: '-0.04em',
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    WebkitBackgroundClip: 'text',
+                    WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                    marginBottom: '1rem',
+                    userSelect: 'none',
+                }}>
+                    404
+                </div>
+
+                {/* Title */}
+                <h1 style={{
+                    fontSize: '1.375rem',
+                    fontWeight: 700,
+                    marginBottom: '0.625rem',
+                    letterSpacing: '-0.01em',
+                }}>
+                    Página não encontrada
+                </h1>
+
+                {/* Description */}
+                <p className="text-muted" style={{
+                    fontSize: '0.9375rem',
+                    marginBottom: '2rem',
+                    lineHeight: 1.6,
+                }}>
+                    A rota que você acessou não existe ou foi movida.
+                    Verifique o endereço ou volte ao painel de agentes.
+                </p>
+
+                {/* Action */}
+                <Link
+                    href="/apps/agents"
+                    className="btn btn-primary"
+                    style={{
+                        padding: '0.625rem 1.75rem',
+                        fontWeight: 600,
+                        borderRadius: '0.625rem',
+                        fontSize: '0.9375rem',
+                    }}
+                >
+                    Ir para Agentes
+                </Link>
             </div>
         </div>
-
-    )
-}
+    );
+};
 
 export default Error404;
