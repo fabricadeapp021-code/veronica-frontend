@@ -111,7 +111,7 @@ const Login = () => {
             // Login simplificado: email + senha.
             // Backend busca automaticamente o tenant do usuário
             await login({ email, password });
-            router.push('/apps/users/list');
+            router.push('/apps/agents');
         } catch (err) {
             const msg = err?.body?.message || err?.message || 'Falha no login';
             
@@ -225,8 +225,13 @@ const Login = () => {
                                                     <Form.Check.Label className="text-muted fs-7">Manter conectado</Form.Check.Label>
                                                 </Form.Check>
                                             </div>
-                                            <Button variant="primary" type="submit" className="btn-uppercase btn-block" disabled={loading}>
-                                                {loading ? 'Entrando…' : 'Login'}
+                                            <Button variant="primary" type="submit" className="btn-uppercase btn-block d-flex align-items-center justify-content-center gap-2" disabled={loading} style={{ minHeight: '42px' }}>
+                                                {loading ? (
+                                                    <>
+                                                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                                                        <span>Entrando…</span>
+                                                    </>
+                                                ) : 'Entrar'}
                                             </Button>
                                             <p className="p-xs mt-2 text-center">Novo no Sanare? <Link href="/auth/signup"><u>Criar conta</u></Link></p>
                                             <Link href="#" className="d-block extr-link text-center mt-4">
@@ -250,20 +255,19 @@ const Login = () => {
                                 </Container>
                             </div>
                         </Col>
-                        <Col xl={7} lg={6} md={5} sm={10} className="d-md-block d-none position-relative bg-primary-light-5">
+                        <Col xl={7} lg={6} md={5} sm={10} className="d-md-block d-none position-relative" style={{ background: 'linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%)' }}>
                             <div className="auth-content flex-column text-center py-8">
                                 <Row>
                                     <Col xxl={7} xl={8} lg={11} className="mx-auto">
-                                        <h2 className="mb-4">{rightPanelTitle}</h2>
-                                        <p style={{ color: '#495057' }}>{rightPanelText}</p>
-                                        <Button variant="flush-primary" className="btn-uppercase mt-3">Ver recurso</Button>
+                                        <h2 className="mb-4 text-white">{rightPanelTitle}</h2>
+                                        <p style={{ color: 'rgba(255,255,255,0.75)' }}>{rightPanelText}</p>
+                                        <Button variant="outline-light" className="btn-uppercase mt-3" style={{ borderRadius: '6px' }}>Ver recurso</Button>
                                     </Col>
                                 </Row>
                                 <div className="d-flex justify-content-center mt-7">
                                     <ProvisionalBrand compact={false} />
                                 </div>
                             </div>
-                           
                         </Col>
                     </Row>
                 </Container>

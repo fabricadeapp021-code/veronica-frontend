@@ -36,10 +36,11 @@ const AgentsSidebar = () => {
   }, [fetchStats]);
 
   const menuItems = [
-    { icon: Icons.Users,   label: 'Funcionários IA', path: '/apps/agents' },
-    { icon: Icons.Link2,   label: 'Conectores',      path: '/apps/agents/connectors' },
-    { icon: Icons.Zap,     label: 'Integrações',     path: '/apps/integrations' },
-    { icon: Icons.Activity, label: 'Monitor',        path: '/apps/monitoring' },
+    { icon: Icons.Users,       label: 'Meu Time',        path: '/apps/agents',           exact: true },
+    { icon: Icons.ShoppingBag, label: 'Marketplace',     path: '/apps/agents/new',       exact: true },
+    { icon: Icons.Link2,       label: 'Conectores',      path: '/apps/agents/connectors',exact: false },
+    { icon: Icons.Zap,         label: 'Integrações',     path: '/apps/integrations',     exact: false },
+    { icon: Icons.Activity,    label: 'Monitor',         path: '/apps/monitoring',       exact: false },
   ];
 
   const quickActions = [
@@ -47,7 +48,8 @@ const AgentsSidebar = () => {
     { icon: Icons.RefreshCw, label: 'Atualizar Lista',   action: 'refresh' },
   ];
 
-  const isActive = (path) => pathname === path;
+  const isActive = (item) =>
+    item.exact ? pathname === item.path : pathname.startsWith(item.path);
 
   const handleQuickAction = (action) => {
     if (action === 'hire') router.push('/apps/agents/new');
@@ -63,7 +65,7 @@ const AgentsSidebar = () => {
               {menuItems.map((item, i) => {
                 const Icon = item.icon;
                 return (
-                  <li key={i} className={`nav-item ${isActive(item.path) ? 'active' : ''}`}>
+                  <li key={i} className={`nav-item ${isActive(item) ? 'active' : ''}`}>
                     <a
                       className="nav-link"
                       href="#"

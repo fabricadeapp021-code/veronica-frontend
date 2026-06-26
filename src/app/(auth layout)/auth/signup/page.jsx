@@ -199,12 +199,28 @@ const Signup = (props) => {
                             </div>
                             <p className="p-xs text-white credit-text opacity-55">Painel SaaS de agentes — OpenClaw</p>
                         </Col>
-                        <Col xl={7} lg={6} md={7} sm={10} className="position-relative mx-auto">
-                            <div className="auth-content flex-column pt-8 pb-md-8 pb-13">
+                        <Col xl={7} lg={6} md={7} sm={10} className="position-relative mx-auto" style={{ backgroundColor: '#fff' }}>
+                            <div className="auth-content flex-column pt-8 pb-md-8 pb-13" style={{ backgroundColor: '#fff', color: '#212529' }}>
                                 <div className="text-center mb-7">
                                     <ProvisionalBrand centered />
                                 </div>
-                                <Form className="w-100" onSubmit={handleSubmit}>
+                                <style>{`
+                                    .signup-form-light .form-control,
+                                    .signup-form-light .input-group-text,
+                                    .signup-form-light .affix-wth-text {
+                                        background-color: #fff !important;
+                                        color: #212529 !important;
+                                        border-color: #dee2e6 !important;
+                                    }
+                                    .signup-form-light .form-label,
+                                    .signup-form-light label,
+                                    .signup-form-light .text-muted,
+                                    .signup-form-light p,
+                                    .signup-form-light h4,
+                                    .signup-form-light small { color: inherit !important; }
+                                    .signup-form-light a:not(.btn) { color: #0d6efd !important; }
+                                `}</style>
+                                <Form className="w-100 signup-form-light" onSubmit={handleSubmit}>
                                     <Row>
                                         <Col xxl={5} xl={7} lg={10} className="mx-auto">
                                             <h4 className="text-center mb-4">Criar conta no OpenClaw SaaS</h4>
@@ -320,8 +336,13 @@ const Signup = (props) => {
                                                     Ao criar uma conta, você concorda com nossos <a href="#">Termos de uso</a> e <a href="#">Política de privacidade</a>.
                                                 </Form.Check.Label>
                                             </Form.Check>
-                                            <Button variant='primary' type="submit" className="btn-rounded btn-uppercase btn-block" disabled={loading}>
-                                                {loading ? 'Criando…' : 'Criar conta'}
+                                            <Button variant='primary' type="submit" className="btn-rounded btn-uppercase btn-block d-flex align-items-center justify-content-center gap-2" disabled={loading} style={{ minHeight: '42px' }}>
+                                                {loading ? (
+                                                    <>
+                                                        <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
+                                                        <span>Criando…</span>
+                                                    </>
+                                                ) : 'Criar conta'}
                                             </Button>
                                             <p className="p-xs mt-2 text-center">Já tem conta? <Link href="/auth/login"><u>Entrar</u></Link></p>
                                         </Col>

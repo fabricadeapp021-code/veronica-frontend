@@ -348,6 +348,7 @@ const Icons = {
 import { apiRequest } from '@/lib/api/client';
 import { getAccessToken } from '@/lib/auth/session';
 import { resolveApiBaseUrl } from '@/lib/api/config';
+import { useQueryClient } from '@tanstack/react-query';
 
 const categoryLabels = {
   channel: 'Canal',
@@ -740,6 +741,7 @@ const ProviderFields = ({ providerKey, form, updateForm }) => {
 const AgentConnectorsPage = () => {
   const searchParams = useSearchParams();
   const agentIdFromUrl = searchParams.get('agentId') || '';
+  const queryClient = useQueryClient();
 
   const [providers, setProviders] = useState([]);
   const [integrations, setIntegrations] = useState([]);
@@ -1333,6 +1335,7 @@ const AgentConnectorsPage = () => {
 
       if (modalProvider.key === 'property_catalog') {
         await loadAgentLinks();
+        queryClient.invalidateQueries({ queryKey: ['agents'] });
         // Close only when no file/URL was processed — keep open to show import/sync results
         if (!propertyCatalogFile && !pcSyncUrl.trim()) {
           closeModal();
@@ -1340,6 +1343,7 @@ const AgentConnectorsPage = () => {
         return;
       }
 
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
       closeModal();
     } catch (err) {
       setFormError(err?.message || 'Erro ao conectar integração.');
@@ -1357,6 +1361,7 @@ const AgentConnectorsPage = () => {
         body: { integrationId: integration.id, permissions: integration.scopes || [] },
       });
       await loadAgentLinks();
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
     } catch (err) {
       setLoadError(err?.message || 'Erro ao vincular conector ao funcionário.');
     } finally {
@@ -1372,6 +1377,7 @@ const AgentConnectorsPage = () => {
         method: 'DELETE',
       });
       await loadAgentLinks();
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
     } catch (err) {
       setLoadError(err?.message || 'Erro ao remover conector do funcionário.');
     } finally {
@@ -1386,6 +1392,7 @@ const AgentConnectorsPage = () => {
         method: 'DELETE',
       });
       await Promise.all([load(), loadAgentLinks()]);
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
     } catch (err) {
       setLoadError(err?.message || 'Erro ao desconectar integração.');
     } finally {

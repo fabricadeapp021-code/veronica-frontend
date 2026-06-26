@@ -11,7 +11,7 @@ export function AuthGuard({ children }) {
 
   useEffect(() => {
     if (status === 'guest') {
-      const returnTo = pathname || '/apps/users/list';
+      const returnTo = pathname || '/apps/agents';
       router.replace(`/auth/login?returnTo=${encodeURIComponent(returnTo)}`);
     }
   }, [status, router, pathname]);
