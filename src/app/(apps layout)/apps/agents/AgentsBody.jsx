@@ -26,6 +26,7 @@ import {
   Search,
   Send,
   Shield,
+  Smartphone,
   Trash2,
   UserCheck,
   UserPlus,
@@ -1857,6 +1858,152 @@ const GreetingMessagesModal = ({ agent, onClose, onSave }) => {
   );
 };
 
+/* ─── WhatsApp Connect Modal ─── */
+const WabaConnectModal = ({ agent, onClose, onConnected }) => {
+  const [loadingStatus, setLoadingStatus] = useState(true);
+  const [tenantConnected, setTenantConnected] = useState(false);
+  const [agentConnected, setAgentConnected] = useState(false);
+  const [phoneNumberId, setPhoneNumberId] = useState('');
+  const [accessToken, setAccessToken] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [err, setErr] = useState('');
+
+  useEffect(() => {
+    Promise.all([
+      apiRequest(`/agents/${agent.id}/whatsapp/tenant-status`),
+      apiRequest(`/agents/${agent.id}/whatsapp/status`),
+    ])
+      .then(([tenantStatus, agentStatus]) => {
+        setTenantConnected(tenantStatus?.connected ?? false);
+        setAgentConnected(agentStatus?.status === 'active');
+      })
+      .catch(() => {})
+      .finally(() => setLoadingStatus(false));
+  }, [agent.id]);
+
+  const handleSave = async () => {
+    const phoneId = phoneNumberId.trim();
+    if (!phoneId) { setErr('Phone Number ID é obrigatório'); return; }
+    if (!tenantConnected && !accessToken.trim()) { setErr('Access Token é obrigatório na primeira conexão'); return; }
+    setSaving(true);
+    setErr('');
+    try {
+      const body = { phoneNumberId: phoneId };
+      if (accessToken.trim()) body.accessToken = accessToken.trim();
+      await apiRequest(`/agents/${agent.id}/whatsapp/manual`, { method: 'POST', body });
+      onConnected();
+      toast.success(`WhatsApp conectado ao agente ${agent.name}!`);
+      onClose();
+    } catch (e) {
+      setErr(e?.message || 'Erro ao conectar WhatsApp');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    if (!confirm(`Desconectar WhatsApp do agente "${agent.name}"?`)) return;
+    setDisconnecting(true);
+    setErr('');
+    try {
+      await apiRequest(`/agents/${agent.id}/whatsapp/disconnect`, { method: 'DELETE' });
+      onConnected();
+      toast.success('WhatsApp desconectado.');
+      onClose();
+    } catch (e) {
+      setErr(e?.message || 'Erro ao desconectar');
+    } finally {
+      setDisconnecting(false);
+    }
+  };
+
+  return (
+    <Modal show onHide={onClose} centered size="md">
+      <Modal.Header closeButton>
+        <Modal.Title className="fs-6 fw-semibold">
+          <Smartphone size={16} className="me-2" />
+          WhatsApp — {agent.name}
+        </Modal.Title>
+      </Modal.Header>
+      <Modal.Body>
+        {loadingStatus ? (
+          <div className="text-center py-4">
+            <Spinner animation="border" size="sm" className="me-2" />
+            <span className="text-muted small">Verificando status...</span>
+          </div>
+        ) : (
+          <>
+            {agentConnected && (
+              <Alert variant="success" className="py-2 small d-flex align-items-center gap-2 mb-3">
+                <Smartphone size={14} />
+                WhatsApp conectado a este agente. Para trocar o número, informe o novo Phone Number ID abaixo.
+              </Alert>
+            )}
+            {err && <Alert variant="danger" className="py-2 small">{err}</Alert>}
+            {tenantConnected && !agentConnected && (
+              <Alert variant="info" className="py-2 small mb-3">
+                Conta WABA já configurada. Informe apenas o Phone Number ID para este agente.
+              </Alert>
+            )}
+
+            <Form.Group className="mb-3">
+              <Form.Label className="fw-semibold small">Phone Number ID</Form.Label>
+              <Form.Control
+                size="sm"
+                placeholder="ex: 1234567890123456"
+                value={phoneNumberId}
+                onChange={(e) => setPhoneNumberId(e.target.value)}
+              />
+              <Form.Text className="text-muted">
+                Meta Business → WhatsApp → Configurações do número.
+              </Form.Text>
+            </Form.Group>
+
+            {!tenantConnected && (
+              <Form.Group className="mb-1">
+                <Form.Label className="fw-semibold small">Access Token (BISU)</Form.Label>
+                <Form.Control
+                  size="sm"
+                  type="password"
+                  placeholder="EAAxxxxx..."
+                  value={accessToken}
+                  onChange={(e) => setAccessToken(e.target.value)}
+                />
+                <Form.Text className="text-muted">
+                  Token permanente do usuário do sistema no Meta Business Manager.
+                </Form.Text>
+              </Form.Group>
+            )}
+          </>
+        )}
+      </Modal.Body>
+      <Modal.Footer className="d-flex justify-content-between">
+        <div>
+          {agentConnected && !loadingStatus && (
+            <Button
+              variant="outline-danger"
+              size="sm"
+              onClick={handleDisconnect}
+              disabled={disconnecting || saving}
+            >
+              {disconnecting ? <Spinner animation="border" size="sm" /> : 'Desconectar'}
+            </Button>
+          )}
+        </div>
+        <div className="d-flex gap-2">
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={saving || disconnecting}>
+            Cancelar
+          </Button>
+          <Button variant="success" size="sm" onClick={handleSave} disabled={saving || loadingStatus || disconnecting}>
+            {saving ? <Spinner animation="border" size="sm" /> : 'Conectar'}
+          </Button>
+        </div>
+      </Modal.Footer>
+    </Modal>
+  );
+};
+
 /* ─── Main Body ─── */
 const PAGE_SIZE = 12;
 
@@ -1869,6 +2016,7 @@ const AgentsBody = () => {
   const [accessAgent, setAccessAgent] = useState(null);
   const [knowledgeAgent, setKnowledgeAgent] = useState(null);
   const [greetingAgent, setGreetingAgent] = useState(null);
+  const [whatsappAgent, setWhatsappAgent] = useState(null);
 
   const { data: agentsData, isLoading: loading } = useQuery({
     queryKey: ['agents'],
@@ -1972,6 +2120,13 @@ const AgentsBody = () => {
           }}
         />
       )}
+      {whatsappAgent && (
+        <WabaConnectModal
+          agent={whatsappAgent}
+          onClose={() => setWhatsappAgent(null)}
+          onConnected={() => queryClient.invalidateQueries({ queryKey: ['agents'] })}
+        />
+      )}
 
       <div className="fm-body">
         <SimpleBar className="nicescroll-bar">
@@ -2049,6 +2204,9 @@ const AgentsBody = () => {
                             <small className="text-muted">{agent.roleTitle}</small>
                           </div>
                           <div className="d-flex align-items-center gap-2 flex-shrink-0">
+                            {agent.wabaStatus === 'active' && (
+                              <Smartphone size={13} className="text-success" title="WhatsApp conectado" />
+                            )}
                             {agent.accessMode === 'PRIVATE' ? (
                               <UserCheck size={13} className="text-danger" title="Privado — Somente Funcionários" />
                             ) : agent.accessMode === 'WHITELIST' ? (
@@ -2152,6 +2310,10 @@ const AgentsBody = () => {
                                   <PauseCircle size={14} className="me-2" />Pausar
                                 </Dropdown.Item>
                               )}
+                              <Dropdown.Item onClick={() => setWhatsappAgent(agent)}>
+                                <Smartphone size={14} className={`me-2 ${agent.wabaStatus === 'active' ? 'text-success' : 'text-muted'}`} />
+                                {agent.wabaStatus === 'active' ? 'WhatsApp conectado' : 'Conectar WhatsApp'}
+                              </Dropdown.Item>
                               <Dropdown.Divider />
                               <Dropdown.Item className="text-danger" onClick={() => archiveAgent(agent)}>
                                 <Trash2 size={14} className="me-2" />Arquivar
