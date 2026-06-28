@@ -199,14 +199,14 @@ const KnowledgeTab = ({ agent, colors, isDark }) => {
           <>
             <BookOpen size={22} style={{ marginBottom: '0.4rem', opacity: 0.5 }} />
             <div style={{ fontSize: '0.875rem', fontWeight: 500, color: colors.textPrimary }}>Upload de documento</div>
-            <div style={{ fontSize: '0.76rem' }}>PDF, DOCX, XLSX, JPEG, PNG, TXT, JSON — max 50MB</div>
+            <div style={{ fontSize: '0.76rem' }}>PDF, DOCX, XLSX, JPEG, PNG, TXT, MD, JSON — max 50MB</div>
           </>
         )}
       </div>
       <input
         ref={fileInputRef}
         type="file"
-        accept=".pdf,.docx,.xlsx,.jpeg,.jpg,.png,.txt,.json,application/json"
+        accept=".pdf,.docx,.xlsx,.jpeg,.jpg,.png,.txt,.md,.json,application/json,text/markdown"
         style={{ display: 'none' }}
         onChange={handleUpload}
       />
