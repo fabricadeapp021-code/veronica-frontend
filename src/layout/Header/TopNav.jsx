@@ -648,7 +648,7 @@ const TopNav = () => {
                                     <div className="avatar avatar-rounded avatar-xs">
                                         {user?.avatarUrl
                                             ? <img src={user.avatarUrl} alt={displayName} className="avatar-img" style={{ objectFit: 'cover' }} />
-                                            : <span className="initial-wrap">{displayInitials}</span>}
+                                            : <span className="initial-wrap" suppressHydrationWarning>{displayInitials}</span>}
                                     </div>
                                 </Dropdown.Toggle>
                                 <Dropdown.Menu align="end">
@@ -658,12 +658,12 @@ const TopNav = () => {
                                                 <div className="avatar avatar-primary avatar-sm avatar-rounded">
                                                     {user?.avatarUrl
                                                         ? <img src={user.avatarUrl} alt={displayName} className="avatar-img" style={{ objectFit: 'cover', borderRadius: '50%' }} />
-                                                        : <span className="initial-wrap">{displayInitials}</span>}
+                                                        : <span className="initial-wrap" suppressHydrationWarning>{displayInitials}</span>}
                                                 </div>
                                             </div>
                                             <div className="media-body">
                                                 <Dropdown>
-                                                    <Dropdown.Toggle as="a" href="#" className={`d-block fw-medium ${isDark ? 'text-light' : 'text-dark'}`}>{displayName}</Dropdown.Toggle>
+                                                    <Dropdown.Toggle as="a" href="#" className={`d-block fw-medium ${isDark ? 'text-light' : 'text-dark'}`} suppressHydrationWarning>{displayName}</Dropdown.Toggle>
                                                     <Dropdown.Menu align="end">
                                                         <div className="p-2">
                                                             <div className="media align-items-center active-user mb-3">
@@ -671,7 +671,7 @@ const TopNav = () => {
                                                                     <div className="avatar avatar-primary avatar-xs avatar-rounded">
                                                                         {user?.avatarUrl
                                                                             ? <img src={user.avatarUrl} alt={displayName} className="avatar-img" style={{ objectFit: 'cover', borderRadius: '50%' }} />
-                                                                            : <span className="initial-wrap">{displayInitials}</span>}
+                                                                            : <span className="initial-wrap" suppressHydrationWarning>{displayInitials}</span>}
                                                                     </div>
                                                                 </div>
                                                                 <div className="media-body">

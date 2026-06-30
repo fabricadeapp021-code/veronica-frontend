@@ -147,30 +147,42 @@ const KnowledgeTab = ({ agent, colors, isDark }) => {
     }
   };
 
-  const statusBadge = (status) => {
+  const statusBadge = (status, progress = 0) => {
     const map = {
       INDEXED: { bg: '#d1fae5', color: '#065f46', label: 'Indexado' },
-      PENDING: { bg: '#fef3c7', color: '#92400e', label: 'Indexando…' },
+      PENDING: { bg: '#fef3c7', color: '#92400e', label: progress > 0 ? `${progress}%` : 'Indexando…' },
       FAILED:  { bg: '#fee2e2', color: '#991b1b', label: 'Falhou' },
     };
     const s = map[status] || { bg: '#e5e7eb', color: '#374151', label: status };
     return (
-      <span style={{
-        fontSize: '0.70rem', fontWeight: 600, borderRadius: '4px',
-        padding: '1px 6px', background: s.bg, color: s.color,
-        display: 'inline-flex', alignItems: 'center', gap: 4,
-      }}>
-        {status === 'PENDING' && (
-          <span style={{
-            width: 7, height: 7, borderRadius: '50%',
-            border: `1.5px solid ${s.color}`,
-            borderTopColor: 'transparent',
-            display: 'inline-block',
-            animation: 'spin 0.8s linear infinite',
-          }} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        <span style={{
+          fontSize: '0.70rem', fontWeight: 600, borderRadius: '4px',
+          padding: '1px 6px', background: s.bg, color: s.color,
+          display: 'inline-flex', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+        }}>
+          {status === 'PENDING' && (
+            <span style={{
+              width: 7, height: 7, borderRadius: '50%',
+              border: `1.5px solid ${s.color}`,
+              borderTopColor: 'transparent',
+              display: 'inline-block',
+              animation: 'spin 0.8s linear infinite',
+            }} />
+          )}
+          {s.label}
+        </span>
+        {status === 'PENDING' && progress > 0 && (
+          <div style={{ width: 80, height: 3, borderRadius: 2, background: '#fde68a', overflow: 'hidden' }}>
+            <div style={{
+              height: '100%', borderRadius: 2,
+              background: '#92400e',
+              width: `${progress}%`,
+              transition: 'width 0.4s ease',
+            }} />
+          </div>
         )}
-        {s.label}
-      </span>
+      </div>
     );
   };
 
@@ -247,7 +259,7 @@ const KnowledgeTab = ({ agent, colors, isDark }) => {
                 }}>
                   {f.originalName || f.name || f.fileName || 'Documento'}
                 </div>
-                {statusBadge(f.status)}
+                {statusBadge(f.status, f.progress ?? 0)}
               </div>
               <Button
                 variant="link"
