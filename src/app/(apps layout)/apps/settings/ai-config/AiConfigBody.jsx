@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { Card, Button, Form, Alert, Spinner, Badge, Col, Row, InputGroup } from 'react-bootstrap';
-import { Eye, EyeOff, Check, Trash, Key, Brain, BrandGoogle, Stars, Bolt, Robot, Cpu } from 'tabler-icons-react';
+import { Eye, EyeOff, Check, Trash, Key, Brain, BrandGoogle, Stars, Bolt, Robot, Cpu, Database, AlertTriangle } from 'tabler-icons-react';
 import { apiRequest } from '@/lib/api/client';
 
 const PROVIDERS = [
@@ -247,6 +247,66 @@ const ProviderCard = ({ provider, config, primaryProvider, onSave, onRemove, onS
     );
 };
 
+const RagCard = ({ openaiConfigured, dark }) => {
+    const borderColor = dark ? 'rgba(99,102,241,0.25)' : 'rgba(99,102,241,0.18)';
+    const headerBg   = dark ? 'rgba(99,102,241,0.12)' : 'rgba(99,102,241,0.06)';
+
+    return (
+        <Card className="mt-4" style={{ border: `1px solid ${borderColor}`, borderRadius: 14, overflow: 'hidden' }}>
+            <div style={{ background: headerBg, padding: '14px 16px', borderBottom: `1px solid ${borderColor}` }}>
+                <div className="d-flex align-items-center gap-2">
+                    <Database size={22} color="#6366f1" />
+                    <div>
+                        <div className="fw-semibold" style={{ fontSize: '0.9rem' }}>Base de Conhecimento (RAG)</div>
+                        <div className="text-muted" style={{ fontSize: '0.75rem' }}>
+                            Indexação e busca semântica dos documentos dos agentes
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <Card.Body className="p-3">
+                <Row className="g-3 align-items-start">
+                    <Col xs={12} sm={6}>
+                        <div style={{ fontSize: '0.8rem', color: dark ? '#94a3b8' : '#6c757d', marginBottom: 4 }}>Embedding provider</div>
+                        <div className="d-flex align-items-center gap-2">
+                            <Brain size={16} color="#10a37f" />
+                            <span className="fw-medium" style={{ fontSize: '0.875rem' }}>OpenAI</span>
+                        </div>
+                        <div style={{ fontSize: '0.75rem', color: dark ? '#64748b' : '#9ca3af', marginTop: 2 }}>
+                            Modelo: <code style={{ fontSize: '0.72rem' }}>text-embedding-3-small</code>
+                        </div>
+                    </Col>
+                    <Col xs={12} sm={6}>
+                        <div style={{ fontSize: '0.8rem', color: dark ? '#94a3b8' : '#6c757d', marginBottom: 4 }}>Status</div>
+                        {openaiConfigured ? (
+                            <div className="d-flex align-items-center gap-2">
+                                <span style={{
+                                    width: 8, height: 8, borderRadius: '50%',
+                                    background: '#22c55e', display: 'inline-block', flexShrink: 0,
+                                }} />
+                                <span style={{ fontSize: '0.875rem', color: '#22c55e', fontWeight: 500 }}>
+                                    Ativo — usando sua chave OpenAI
+                                </span>
+                            </div>
+                        ) : (
+                            <div className="d-flex align-items-center gap-2">
+                                <AlertTriangle size={15} color="#f59e0b" />
+                                <span style={{ fontSize: '0.875rem', color: '#f59e0b', fontWeight: 500 }}>
+                                    Configure o OpenAI acima para ativar
+                                </span>
+                            </div>
+                        )}
+                        <div style={{ fontSize: '0.75rem', color: dark ? '#64748b' : '#9ca3af', marginTop: 4 }}>
+                            Sua chave OpenAI é usada para indexar e buscar documentos.
+                            Sem ela, o upload de documentos e o RAG não funcionam.
+                        </div>
+                    </Col>
+                </Row>
+            </Card.Body>
+        </Card>
+    );
+};
+
 const AiConfigBody = () => {
     const dark = useDarkMode();
     const [config, setConfig] = useState(null);
@@ -375,6 +435,8 @@ const AiConfigBody = () => {
                     </Col>
                 ))}
             </Row>
+
+            <RagCard openaiConfigured={config?.openai?.configured} dark={dark} />
         </div>
     );
 };
