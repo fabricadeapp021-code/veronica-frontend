@@ -81,6 +81,13 @@ export const ProviderIcons = {
       <path d="M9 22V12h6v10" stroke="#14b8a6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   ),
+  lead_connector: ({ size = 20 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="9" cy="7" r="4" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M3 21v-2a4 4 0 014-4h4a4 4 0 014 4v2" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M16 11l2 2 4-4" stroke="#f97316" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  ),
 };
 
 export const providerMeta = {
@@ -97,6 +104,7 @@ export const providerMeta = {
   pipedrive:        { Icon: ProviderIcons.pipedrive,       color: '#1A73E8', label: 'Pipedrive' },
   wordpress:        { Icon: ProviderIcons.wordpress,       color: '#21759B', label: 'WordPress Imóveis' },
   property_catalog: { Icon: ProviderIcons.property_catalog, color: '#14b8a6', label: 'Catálogo de Imóveis' },
+  lead_connector:   { Icon: ProviderIcons.lead_connector,   color: '#f97316', label: 'Gestão de Leads' },
 };
 
 const TOOL_PREFIX_TO_PROVIDER = [
@@ -113,6 +121,7 @@ const TOOL_PREFIX_TO_PROVIDER = [
   ['whatsapp_',           'whatsapp'],
   ['wordpress_',          'wordpress'],
   ['property_catalog_',   'property_catalog'],
+  ['lead_',               'lead_connector'],
 ];
 
 export function toolsToProviderKeys(allowList = []) {

@@ -278,9 +278,7 @@ export default function ControlTowerBody() {
   const [positions,      setPositions]      = useState([]);
   const [activeTrips,    setActiveTrips]    = useState([]);
   const [selectedDevice, setSelectedDevice] = useState(null);
-  const [selectedTripPanel, setSelectedTripPanel] = useState(null); // viagem aberta diretamente
-  const [aiAnalysis,        setAiAnalysis]        = useState('');   // resposta do agente IA
-  const [aiLoading,         setAiLoading]          = useState(false);
+  const [selectedTripPanel, setSelectedTripPanel] = useState(null);
   const [isLive,         setIsLive]         = useState(true);
   const [lastRefresh,    setLastRefresh]    = useState(null);
   const [refreshing,     setRefreshing]     = useState(false);
@@ -652,7 +650,7 @@ export default function ControlTowerBody() {
                 key={trip._id}
                 className="d-flex align-items-center gap-2 mb-1 rounded px-1"
                 style={{ cursor: 'pointer', transition: 'background 0.15s' }}
-                onClick={() => { setSelectedTripPanel(trip); setSelectedDevice(null); setAiAnalysis(''); }}
+                onClick={() => { setSelectedTripPanel(trip); setSelectedDevice(null); }}
                 onMouseEnter={e => e.currentTarget.style.background = 'rgba(13,110,253,.12)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
               >
@@ -1054,49 +1052,7 @@ export default function ControlTowerBody() {
                     </div>
                   )}
 
-                  <button
-                    className="btn btn-sm w-100 mt-3"
-                    style={{ background: 'linear-gradient(135deg,#6610f2,#0d6efd)', color: '#fff', border: 'none' }}
-                    disabled={aiLoading}
-                    onClick={async () => {
-                      setAiAnalysis('');
-                      setAiLoading(true);
-                      const msg = `Analise a viagem ${trip._id} com destino a "${trip.destination?.address ?? ''}". Liste os eventos registrados pelo motorista e as ocorrências, avalie o status atual e dê recomendações práticas para o operador.`;
-                      try {
-                        const { fetchStream } = await import('@/lib/api/client');
-                        const res = await fetchStream('/fleet-ai/chat/stream', { body: { message: msg } });
-                        const reader = res.body.getReader();
-                        const decoder = new TextDecoder();
-                        let full = '';
-                        setAiLoading(false);
-                        while (true) {
-                          const { done, value } = await reader.read();
-                          if (done) break;
-                          const lines = decoder.decode(value).split('\n');
-                          for (const line of lines) {
-                            if (!line.startsWith('data: ')) continue;
-                            const payload = line.slice(6);
-                            if (payload === '[DONE]') break;
-                            try { full += JSON.parse(payload).chunk ?? ''; setAiAnalysis(full); } catch { /* skip */ }
-                          }
-                        }
-                      } catch (e) {
-                        setAiLoading(false);
-                        setAiAnalysis(`Erro: ${e?.message ?? 'Falha ao contatar o agente IA.'}`);
-                      }
-                    }}
-                  >
-                    {aiLoading ? <><span className="spinner-border spinner-border-sm me-2" />Analisando…</> : '✨ Analisar com IA'}
-                  </button>
-
-                  {aiAnalysis && (
-                    <div className="mt-3 p-2 rounded" style={{ background: 'rgba(102,16,242,.07)', border: '1px solid rgba(102,16,242,.2)', maxHeight: 260, overflowY: 'auto' }}>
-                      <small className="fw-semibold d-block mb-1" style={{ color: '#6610f2', fontSize: '0.65rem', letterSpacing: 1 }}>ANÁLISE DO AGENTE IA</small>
-                      <small style={{ whiteSpace: 'pre-wrap', fontSize: '0.78rem', lineHeight: 1.5 }}>{aiAnalysis}</small>
-                    </div>
-                  )}
-
-                  <button className="btn btn-xs btn-light w-100 mt-2" onClick={() => { setSelectedTripPanel(null); setAiAnalysis(''); setTripAlerts([]); }}>Fechar</button>
+                  <button className="btn btn-xs btn-light w-100 mt-2" onClick={() => { setSelectedTripPanel(null); setTripAlerts([]); }}>Fechar</button>
                 </Card.Body>
               </Card>
             </div>

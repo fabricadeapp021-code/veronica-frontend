@@ -3,8 +3,8 @@ import Link from 'next/link';
 import Image from 'next/image';
 import SimpleBar from 'simplebar-react';
 import { getAgentBillingSummary } from '@/lib/api/services/billing';
-import { AlignLeft, Bell, Calendar, CheckSquare, Clock, CreditCard, Inbox, Moon, Plus, Search, Settings, Sun, Tag, Layers } from 'react-feather';
-import { CreditCard as TablerCreditCard, MessageCircle } from 'tabler-icons-react';
+import { AlignLeft, Moon, Plus, Search, Sun, Layers } from 'react-feather';
+import { MessageCircle } from 'tabler-icons-react';
 import { Button, Container, Dropdown, Form, InputGroup, Nav, Navbar, Spinner } from 'react-bootstrap';
 import classNames from 'classnames';
 import { motion } from 'framer-motion';
@@ -14,7 +14,6 @@ import { useGlobalStateContext } from '@/context/GolobalStateProvider';
 import { useRouter, usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { useColorMode } from '@/hooks/useColorMode';
-import FleetAiPanel from '@/app/(apps layout)/apps/fleet/_components/FleetAiPanel';
 import { createWizard } from '@/lib/api/services/tripWizard';
 
 //Images
@@ -36,7 +35,6 @@ const TopNav = () => {
     const [showDropdown, setShowDropdown] = useState(false);
     const [searchValue, setSearchValue] = useState("")
     const [agentSummary, setAgentSummary] = useState({ agentSlots: 0, activeAgentsCount: 0 });
-    const [showAiPanel, setShowAiPanel] = useState(false);
     const [wizardCreating, setWizardCreating] = useState(false);
     const router = useRouter();
     const pathname = usePathname();
@@ -498,68 +496,6 @@ const TopNav = () => {
                             </HkTooltip>
                         </Nav.Item>
                         )}
-                        <Nav.Item className="d-flex align-items-center">
-                            <HkTooltip id="tooltip-ai-assistant" placement="bottom" title="Assistente IA">
-                                <div
-                                    style={{
-                                        display: 'inline-flex',
-                                        alignItems: 'center',
-                                        gap: 8,
-                                        padding: '6px 14px 6px 12px',
-                                        borderRadius: 999,
-                                        background: isDark
-                                            ? 'linear-gradient(135deg, #1c2748 0%, #141d35 100%)'
-                                            : '#ffffff',
-                                        border: isDark
-                                            ? '1px solid rgba(59,130,246,0.22)'
-                                            : '1px solid rgba(15,23,42,0.08)',
-                                        boxShadow: isDark
-                                            ? '0 4px 14px -6px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.03)'
-                                            : '0 2px 8px -3px rgba(15,23,42,0.08), 0 1px 2px rgba(15,23,42,0.04)',
-                                        cursor: 'pointer',
-                                        transition: 'transform .15s ease, box-shadow .2s ease, border-color .2s ease',
-                                    }}
-                                    onClick={() => setShowAiPanel(p => !p)}
-                                    onMouseEnter={(e) => {
-                                        e.currentTarget.style.transform = 'translateY(-1px)';
-                                        e.currentTarget.style.boxShadow = isDark
-                                            ? '0 6px 18px -4px rgba(59,130,246,0.6), inset 0 1px 0 rgba(255,255,255,0.05)'
-                                            : '0 4px 12px -4px rgba(15,23,42,0.15), 0 2px 4px rgba(15,23,42,0.08)';
-                                        e.currentTarget.style.borderColor = isDark
-                                            ? 'rgba(59,130,246,0.4)'
-                                            : 'rgba(15,23,42,0.15)';
-                                    }}
-                                    onMouseLeave={(e) => {
-                                        e.currentTarget.style.transform = 'translateY(0)';
-                                        e.currentTarget.style.boxShadow = isDark
-                                            ? '0 4px 14px -6px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.03)'
-                                            : '0 2px 8px -3px rgba(15,23,42,0.08), 0 1px 2px rgba(15,23,42,0.04)';
-                                        e.currentTarget.style.borderColor = isDark
-                                            ? 'rgba(59,130,246,0.22)'
-                                            : 'rgba(15,23,42,0.08)';
-                                    }}
-                                >
-                                    <MessageCircle
-                                        size={17}
-                                        style={{
-                                            color: isDark ? '#60a5fa' : '#3b82f6',
-                                            flexShrink: 0,
-                                            strokeWidth: 1.75,
-                                        }}
-                                    />
-                                    <span
-                                        style={{
-                                            fontWeight: 700,
-                                            color: isDark ? '#ffffff' : '#2563eb',
-                                            fontSize: '0.9rem',
-                                            lineHeight: 1,
-                                        }}
-                                    >
-                                        Agente IA
-                                    </span>
-                                </div>
-                            </HkTooltip>
-                        </Nav.Item>
                         {(
                             <Nav.Item>
                                 <HkTooltip id="tooltip-agents" placement="bottom" title="Vagas de agente contratadas">
@@ -712,48 +648,6 @@ const TopNav = () => {
                                             </div>
                                         </div>
                                     </div>
-                                    <Dropdown.Divider as="div" />
-                                    <Dropdown.Item as={Link} href="/apps/admin/settings" >Perfil do Partido</Dropdown.Item>
-                                    {/*
-                                    <Dropdown.Item>
-                                        <span className="me-2">Ofertas</span>
-                                        <span className="badge badge-sm badge-soft-pink">2</span>
-                                    </Dropdown.Item>
-                                    */}
-                                    <Dropdown.Divider as="div" />
-                                    <h6 className="dropdown-header">Gerenciar Conta</h6>
-                                    <Dropdown.Item>
-                                        <span className="dropdown-icon feather-icon">
-                                            <CreditCard />
-                                        </span>
-                                        <span>Métodos de Pagamento</span>
-                                    </Dropdown.Item>
-                                    <Dropdown.Item>
-                                        <span className="dropdown-icon feather-icon">
-                                            <CheckSquare />
-                                        </span>
-                                        <span>Assinaturas</span>
-                                    </Dropdown.Item>
-                                    <Dropdown.Item>
-                                        <span className="dropdown-icon feather-icon">
-                                            <Settings />
-                                        </span>
-                                        <span>Configurações</span>
-                                    </Dropdown.Item>
-                                    <Dropdown.Divider as="div" />
-                                    <Dropdown.Item>
-                                        <span className="dropdown-icon feather-icon">
-                                            <Tag />
-                                        </span>
-                                        <span>Abrir Chamado</span>
-                                    </Dropdown.Item>
-                                    <Dropdown.Divider as="div" />
-                                    <Dropdown.Item>
-                                        Termos e Condições
-                                    </Dropdown.Item>
-                                    <Dropdown.Item>
-                                        Ajuda e Suporte
-                                    </Dropdown.Item>
                                 </Dropdown.Menu>
                             </Dropdown>
                         </Nav.Item>
@@ -763,10 +657,6 @@ const TopNav = () => {
             </Container>
         </Navbar>
 
-        <FleetAiPanel
-            open={showAiPanel}
-            onClose={() => setShowAiPanel(false)}
-        />
     </>
     )
 }

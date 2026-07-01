@@ -348,7 +348,7 @@ const Icons = {
 import { apiRequest } from '@/lib/api/client';
 import { getAccessToken } from '@/lib/auth/session';
 import { resolveApiBaseUrl } from '@/lib/api/config';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 const categoryLabels = {
   channel: 'Canal',
@@ -406,6 +406,7 @@ const providerMeta = {
   webhook_inbound:  { BrandComponent: Icons.webhook,        color: '#8b5cf6' },
   wordpress:        { BrandComponent: Icons.wordpress,      color: '#21759B' },
   property_catalog: { BrandComponent: Icons.documents,      color: '#14b8a6' },
+  lead_connector:   { BrandComponent: null,                 color: '#f97316' },
 };
 
 const defaultMeta = { BrandComponent: null, color: '#6b7280' };
@@ -521,6 +522,11 @@ const defaultFormByProvider = {
   property_catalog: {
     name: 'Catálogo de Imóveis',
     config: { provider: 'property_catalog', catalogName: '' },
+    credentials: {},
+  },
+  lead_connector: {
+    name: 'Gestão de Leads',
+    config: { provider: 'lead_connector' },
     credentials: {},
   },
 };
@@ -733,6 +739,16 @@ const ProviderFields = ({ providerKey, form, updateForm }) => {
         </span>
       </div>,
     ],
+    lead_connector: [
+      <div key="lead-info" className="rounded-2 px-3 py-2 mb-1 d-flex gap-2 align-items-start" style={{ background: 'rgba(249,115,22,0.07)', border: '1px solid rgba(249,115,22,0.22)', fontSize: 12 }}>
+        <Zap size={14} color="#f97316" style={{ marginTop: 2, flexShrink: 0 }} />
+        <span className="text-muted">
+          Conector nativo — sem credenciais externas. Ativa as tools de leads diretamente no funcionário selecionado:
+          <strong> lead_add</strong>, <strong>lead_search</strong>, <strong>lead_update_stage</strong>,{' '}
+          <strong>lead_get_history</strong>, <strong>lead_send_message</strong>.
+        </span>
+      </div>,
+    ],
   };
 
   return <>{(fields[providerKey] || [])}</>;
@@ -743,17 +759,38 @@ const AgentConnectorsPage = () => {
   const agentIdFromUrl = searchParams.get('agentId') || '';
   const queryClient = useQueryClient();
 
-  const [providers, setProviders] = useState([]);
-  const [integrations, setIntegrations] = useState([]);
-  const [agents, setAgents] = useState([]);
-  const [agentLinks, setAgentLinks] = useState([]);
   const [selectedAgentId, setSelectedAgentId] = useState(agentIdFromUrl);
+
+  const { data: providersData, isLoading: providersLoading } = useQuery({
+    queryKey: ['integrations', 'providers'],
+    queryFn: () => apiRequest('/integrations/providers'),
+  });
+  const providers = providersData?.providers ?? [];
+
+  const { data: integrationsData, isLoading: integrationsLoading } = useQuery({
+    queryKey: ['integrations'],
+    queryFn: () => apiRequest('/integrations'),
+  });
+  const integrations = integrationsData?.integrations ?? [];
+
+  const { data: agentsData, isLoading: agentsLoading } = useQuery({
+    queryKey: ['agents'],
+    queryFn: () => apiRequest('/agents'),
+  });
+  const agents = agentsData?.agents ?? [];
+
+  const { data: agentLinksData } = useQuery({
+    queryKey: ['agents', selectedAgentId, 'integrations'],
+    queryFn: () => apiRequest(`/agents/${selectedAgentId}/integrations`),
+    enabled: !!selectedAgentId,
+  });
+  const agentLinks = agentLinksData?.integrations ?? [];
   const [form, setForm] = useState({ name: '', config: {}, credentials: {} });
   const [modalProvider, setModalProvider] = useState(null);
   const [showSidebar, setShowSidebar] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [autoLink, setAutoLink] = useState(true);
-  const [loading, setLoading] = useState(true);
+  const loading = providersLoading || integrationsLoading || agentsLoading;
   const [saving, setSaving] = useState(false);
   const [linkingId, setLinkingId] = useState('');
   const [loadError, setLoadError] = useState('');
@@ -779,6 +816,8 @@ const AgentConnectorsPage = () => {
   const [propertyCatalogFile, setPropertyCatalogFile] = useState(null);
   const [propertyCatalogImport, setPropertyCatalogImport] = useState(null);
   const [pcSyncUrl, setPcSyncUrl] = useState('');
+  const [leadFile, setLeadFile] = useState(null);
+  const [leadImportResult, setLeadImportResult] = useState(null);
   const [pcSyncCptSlug, setPcSyncCptSlug] = useState('');
   const [pcSyncing, setPcSyncing] = useState(false);
   const [pcSyncResult, setPcSyncResult] = useState(null);
@@ -793,47 +832,9 @@ const AgentConnectorsPage = () => {
   const [linkingCatalogId, setLinkingCatalogId] = useState(null);
   const [exportingCatalogId, setExportingCatalogId] = useState(null);
 
-  const load = useCallback(async () => {
-    try {
-      setLoading(true);
-      setLoadError('');
-      const [providersRes, integrationsRes, agentsRes] = await Promise.all([
-        apiRequest('/integrations/providers'),
-        apiRequest('/integrations'),
-        apiRequest('/agents'),
-      ]);
-      setProviders(providersRes?.providers || []);
-      setIntegrations(integrationsRes?.integrations || []);
-      const agentList = agentsRes?.agents || [];
-      setAgents(agentList);
-      if (!selectedAgentId && agentList[0]) setSelectedAgentId(agentList[0].id);
-    } catch (err) {
-      setLoadError(err?.message || 'Erro ao carregar conectores.');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedAgentId]);
-
   useEffect(() => {
-    load();
-  }, [load]);
-
-  const loadAgentLinks = useCallback(async () => {
-    if (!selectedAgentId) {
-      setAgentLinks([]);
-      return;
-    }
-    try {
-      const res = await apiRequest(`/agents/${selectedAgentId}/integrations`);
-      setAgentLinks(res?.integrations || []);
-    } catch {
-      // non-critical, skip
-    }
-  }, [selectedAgentId]);
-
-  useEffect(() => {
-    loadAgentLinks();
-  }, [loadAgentLinks]);
+    if (!selectedAgentId && agents[0]) setSelectedAgentId(agents[0].id);
+  }, [agents, selectedAgentId]);
 
   useEffect(() => {
     const connected = searchParams.get('connected');
@@ -860,8 +861,8 @@ const AgentConnectorsPage = () => {
           body: { integrationId: integration.id, permissions: integration.scopes || [] },
         }),
       ),
-    ).then(() => loadAgentLinks()).catch(() => {});
-  }, [searchParams, selectedAgentId, integrations, agentLinks, loadAgentLinks]);
+    ).then(() => queryClient.invalidateQueries({ queryKey: ['agents', selectedAgentId, 'integrations'] })).catch(() => {});
+  }, [searchParams, selectedAgentId, integrations, agentLinks, queryClient]);
 
   const connectedProviderKeys = useMemo(
     () => new Set(integrations.map((i) => i.providerKey)),
@@ -869,7 +870,7 @@ const AgentConnectorsPage = () => {
   );
 
   const linkedProviderKeys = useMemo(
-    () => new Set(agentLinks.map((l) => l.integration?.providerKey).filter(Boolean)),
+    () => new Set(agentLinks.map((l) => l.integration?.providerKey ?? l.providerKey).filter(Boolean)),
     [agentLinks],
   );
 
@@ -1003,7 +1004,8 @@ const AgentConnectorsPage = () => {
       setDeleteCatalogTarget(null);
       await loadPcCatalogs(selectedAgentId);
       if (pcCatalogs.length <= 1) {
-        await Promise.all([load(), loadAgentLinks()]);
+        queryClient.invalidateQueries({ queryKey: ['integrations'] });
+        queryClient.invalidateQueries({ queryKey: ['agents', selectedAgentId, 'integrations'] });
       }
     } catch (err) {
       setDeleteCatalogError(err?.message || 'Erro ao excluir catálogo.');
@@ -1054,7 +1056,7 @@ const AgentConnectorsPage = () => {
         { method: 'POST' },
       );
       await loadPcCatalogs(selectedAgentId);
-      await loadAgentLinks();
+      queryClient.invalidateQueries({ queryKey: ['agents', selectedAgentId, 'integrations'] });
     } catch {
       // non-critical, catalog list will reflect actual state on next load
     } finally {
@@ -1171,6 +1173,8 @@ const AgentConnectorsPage = () => {
     setPcSyncUrl('');
     setPcSyncCptSlug('');
     setPcSyncResult(null);
+    setLeadFile(null);
+    setLeadImportResult(null);
     setShowModal(true);
     if (provider.key === 'clickup' && connectedProviderKeys.has('clickup')) {
       fetchClickupLists();
@@ -1191,6 +1195,8 @@ const AgentConnectorsPage = () => {
     setPcSyncUrl('');
     setPcSyncCptSlug('');
     setPcSyncResult(null);
+    setLeadFile(null);
+    setLeadImportResult(null);
   }
 
   const updateForm = (section, key, value) => {
@@ -1262,6 +1268,27 @@ const AgentConnectorsPage = () => {
         }
       }
 
+      if (modalProvider.key === 'lead_connector') {
+        if (!selectedAgentId) throw new Error('Selecione um funcionário IA para ativar o conector de leads.');
+        if (leadFile) {
+          const uploadBody = new FormData();
+          uploadBody.append('file', leadFile);
+          const importResult = await apiRequest(
+            `/agents/${selectedAgentId}/integrations/lead-connector/upload`,
+            { method: 'POST', body: uploadBody, timeoutMs: 60000 },
+          );
+          setLeadImportResult(importResult);
+        } else {
+          await apiRequest(`/agents/${selectedAgentId}/integrations/lead-connector/enable`, { method: 'POST' });
+        }
+        queryClient.invalidateQueries({ queryKey: ['agents', selectedAgentId, 'integrations'] });
+        queryClient.invalidateQueries({ queryKey: ['agents'] });
+        if (!leadFile) {
+          closeModal();
+        }
+        return;
+      }
+
       const cleanCredentials = Object.fromEntries(
         Object.entries(form.credentials || {}).filter(
           ([, v]) => v && !/^\*+$/.test(String(v)),
@@ -1298,7 +1325,7 @@ const AgentConnectorsPage = () => {
             config: agentConfig,
           },
         });
-        await loadAgentLinks();
+        queryClient.invalidateQueries({ queryKey: ['agents', selectedAgentId, 'integrations'] });
         linkedNow = true;
       }
 
@@ -1323,8 +1350,7 @@ const AgentConnectorsPage = () => {
         }
       }
 
-      const integrationsRes = await apiRequest('/integrations');
-      setIntegrations(integrationsRes?.integrations || []);
+      await queryClient.invalidateQueries({ queryKey: ['integrations'] });
 
       if (modalProvider.key === 'wordpress' && linkedNow) {
         // Mantém o modal aberto e dispara o sync explicitamente para que o
@@ -1334,7 +1360,7 @@ const AgentConnectorsPage = () => {
       }
 
       if (modalProvider.key === 'property_catalog') {
-        await loadAgentLinks();
+        queryClient.invalidateQueries({ queryKey: ['agents', selectedAgentId, 'integrations'] });
         queryClient.invalidateQueries({ queryKey: ['agents'] });
         // Close only when no file/URL was processed — keep open to show import/sync results
         if (!propertyCatalogFile && !pcSyncUrl.trim()) {
@@ -1360,7 +1386,7 @@ const AgentConnectorsPage = () => {
         method: 'POST',
         body: { integrationId: integration.id, permissions: integration.scopes || [] },
       });
-      await loadAgentLinks();
+      queryClient.invalidateQueries({ queryKey: ['agents', selectedAgentId, 'integrations'] });
       queryClient.invalidateQueries({ queryKey: ['agents'] });
     } catch (err) {
       setLoadError(err?.message || 'Erro ao vincular conector ao funcionário.');
@@ -1376,7 +1402,7 @@ const AgentConnectorsPage = () => {
       await apiRequest(`/agents/${selectedAgentId}/integrations/${integration.id}`, {
         method: 'DELETE',
       });
-      await loadAgentLinks();
+      queryClient.invalidateQueries({ queryKey: ['agents', selectedAgentId, 'integrations'] });
       queryClient.invalidateQueries({ queryKey: ['agents'] });
     } catch (err) {
       setLoadError(err?.message || 'Erro ao remover conector do funcionário.');
@@ -1391,7 +1417,8 @@ const AgentConnectorsPage = () => {
       await apiRequest(`/integrations/${integration.id}`, {
         method: 'DELETE',
       });
-      await Promise.all([load(), loadAgentLinks()]);
+      queryClient.invalidateQueries({ queryKey: ['integrations'] });
+      queryClient.invalidateQueries({ queryKey: ['agents', selectedAgentId, 'integrations'] });
       queryClient.invalidateQueries({ queryKey: ['agents'] });
     } catch (err) {
       setLoadError(err?.message || 'Erro ao desconectar integração.');
@@ -1467,7 +1494,12 @@ const AgentConnectorsPage = () => {
                 </option>
               ))}
             </Form.Select>
-            <Button variant="light" size="sm" onClick={load}>
+            <Button variant="light" size="sm" onClick={() => {
+              queryClient.invalidateQueries({ queryKey: ['integrations', 'providers'] });
+              queryClient.invalidateQueries({ queryKey: ['integrations'] });
+              queryClient.invalidateQueries({ queryKey: ['agents'] });
+              if (selectedAgentId) queryClient.invalidateQueries({ queryKey: ['agents', selectedAgentId, 'integrations'] });
+            }}>
               <RefreshCw size={14} className="me-1" />
               Atualizar
             </Button>
@@ -2050,6 +2082,79 @@ const AgentConnectorsPage = () => {
                           <Alert variant="success" className="py-2 mb-0" style={{ fontSize: 13 }}>
                             <CheckCircle size={14} className="me-1" />
                             {propertyCatalogImport.totalRecords || 0} imóveis importados com sucesso do arquivo <strong>{propertyCatalogFile.name}</strong>.
+                          </Alert>
+                        )}
+                      </div>
+                    )}
+
+                    {modalProvider.key === "lead_connector" && (
+                      <div className="mb-3">
+                        <div className="rounded-2 px-3 py-2 mb-3" style={{ background: "rgba(249,115,22,0.06)", border: "1px solid rgba(249,115,22,0.2)", fontSize: 12 }}>
+                          <div className="fw-semibold mb-1" style={{ color: "#ea580c" }}>Colunas aceitas no arquivo (CSV / Excel)</div>
+                          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 11 }}>
+                            <thead>
+                              <tr style={{ color: "#6b7280" }}>
+                                <th style={{ textAlign: "left", paddingBottom: 4, paddingRight: 8 }}>Coluna</th>
+                                <th style={{ textAlign: "left", paddingBottom: 4, paddingRight: 8 }}>Tipo</th>
+                                <th style={{ textAlign: "left", paddingBottom: 4 }}>Exemplo</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {[
+                                ["phone / telefone", "chave de upsert", "+5521999990000"],
+                                ["name / nome", "texto", "João Silva"],
+                                ["email", "texto", "joao@email.com"],
+                                ["company / empresa", "texto", "Construtora ABC"],
+                                ["stage / estágio", "enum", "qualificado"],
+                                ["score / pontuação", "número", "75"],
+                                ["tags", "separados por vírgula", "investidor,compacto"],
+                              ].map(([col, tipo, ex]) => (
+                                <tr key={col}>
+                                  <td style={{ paddingBottom: 2, paddingRight: 8, fontFamily: "monospace", color: "#374151" }}>{col}</td>
+                                  <td style={{ paddingBottom: 2, paddingRight: 8, color: tipo === "chave de upsert" ? "#ea580c" : "#6b7280" }}>{tipo}</td>
+                                  <td style={{ paddingBottom: 2, color: "#6b7280" }}>{ex}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                          <div className="mt-2 text-muted">
+                            Se <strong>phone</strong> estiver presente, leads com o mesmo número são atualizados em vez de duplicados. Stages válidos: <em>novo, contatado, qualificado, proposta, visita_agendada, fechado, perdido</em>.
+                          </div>
+                        </div>
+
+                        <Form.Group className="mb-2">
+                          <Form.Label>Importar leads <span className="text-muted fw-normal">(opcional)</span></Form.Label>
+                          <Form.Control
+                            type="file"
+                            accept=".xlsx,.xls,text/csv,.csv"
+                            onChange={(e) => {
+                              setLeadFile(e.target.files?.[0] || null);
+                              setLeadImportResult(null);
+                              setFormError("");
+                            }}
+                          />
+                          <Form.Text className="text-muted">
+                            Aceita <strong>.xlsx</strong> ou <strong>.csv</strong>. Máximo 10 MB. Deixe vazio para ativar sem importar.
+                          </Form.Text>
+                        </Form.Group>
+
+                        {leadFile && !leadImportResult && (
+                          <div className="rounded-2 px-3 py-2 mb-2" style={{ background: "var(--bs-tertiary-bg)", border: "1px solid var(--bs-border-color)", fontSize: 12 }}>
+                            <div className="fw-semibold">{leadFile.name}</div>
+                            <div className="text-muted">{(leadFile.size / 1024 / 1024).toFixed(2)} MB</div>
+                          </div>
+                        )}
+
+                        {leadImportResult?.ok && (
+                          <Alert variant="success" className="py-2 mb-0" style={{ fontSize: 13 }}>
+                            <CheckCircle size={14} className="me-1" />
+                            {leadImportResult.imported || 0} leads importados, {leadImportResult.updated || 0} atualizados
+                            {leadFile && <> do arquivo <strong>{leadFile.name}</strong></>}.
+                            {leadImportResult.errors?.length > 0 && (
+                              <div className="mt-1" style={{ color: "#d97706", fontSize: 11 }}>
+                                {leadImportResult.errors.length} linha(s) com erro: {leadImportResult.errors.map((e) => `linha ${e.row}`).join(", ")}.
+                              </div>
+                            )}
                           </Alert>
                         )}
                       </div>

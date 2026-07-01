@@ -3,8 +3,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Row, Col, Card, Badge, Spinner, ProgressBar } from 'react-bootstrap';
 import {
   Truck, AlertTriangle, TrendingUp, MapPin, Navigation, RefreshCw,
-  Activity, Tool, DollarSign, Cpu, Clock, CheckCircle, AlertCircle, Zap, MessageCircle,
-  Search, Users, Link2, BarChart2,
+  Activity, Tool, DollarSign, Cpu, Clock, CheckCircle, AlertCircle,
 } from 'react-feather';
 import SimpleBar from 'simplebar-react';
 import Link from 'next/link';
@@ -13,10 +12,8 @@ import {
   getTraccarDevices, getPositions, getMaintenances, todayRange,
 } from '@/lib/api/services/fleet';
 import { getFinancialSummary } from '@/lib/api/services/financial';
-import { fleetAiGetPendingActions } from '@/lib/api/services/fleet-ai';
 import { useColorMode } from '@/hooks/useColorMode';
 import OnboardingWizard from './OnboardingWizard';
-import FleetAiPanel from '../_components/FleetAiPanel';
 
 // ── helpers visuais ────────────────────────────────────────────────────────────
 
@@ -28,15 +25,6 @@ const eventTypes    = {
   hardAcceleration: 'Aceleração brusca',  alarm: 'Alarme',
 };
 const AUTO_REFRESH_MS = 60_000;
-
-const AI_ACTIONS = [
-  { icon: Search,       label: 'Detectar Anomalias',   color: 'danger',    message: 'Detecte anomalias na frota dos últimos 7 dias e classifique por severidade' },
-  { icon: BarChart2,    label: 'Relatório Executivo',  color: 'primary',   message: 'Gere um relatório completo da frota dos últimos 7 dias' },
-  { icon: AlertTriangle,label: 'Analisar Alertas',     color: 'warning',   message: 'Quais foram os alertas mais críticos nas últimas 24 horas?' },
-  { icon: Users,        label: 'Ranking Motoristas',   color: 'success',   message: 'Mostre o ranking dos motoristas por score de direção com recomendações' },
-  { icon: DollarSign,   label: 'Análise Financeira',   color: 'info',      message: 'Me dê um resumo financeiro da frota do último mês com custo por km' },
-  { icon: Link2,        label: 'Integrações',          color: 'secondary', message: 'Quais integrações externas estão configuradas? Lista os destinos disponíveis' },
-];
 
 function StatCard({ title, value, sub, icon: Icon, color, href, loading, isDark }) {
   return (
@@ -95,17 +83,7 @@ export default function FleetDashboardBody() {
   const [loading,      setLoading]      = useState(true);
   const [lastFetch,    setLastFetch]    = useState(null);
   const [showOnboard,  setShowOnboard]  = useState(false);
-  const [showAiPanel,  setShowAiPanel]  = useState(false);
-  const [aiInitialMessage, setAiInitialMessage] = useState(null);
-  const [aiActionKey,      setAiActionKey]      = useState(0);
-  const [pendingCount,     setPendingCount]      = useState(0);
   const timerRef = useRef(null);
-
-  const openAiWithMessage = useCallback((message) => {
-    setAiInitialMessage(message);
-    setAiActionKey(k => k + 1);
-    setShowAiPanel(true);
-  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -147,15 +125,6 @@ export default function FleetDashboardBody() {
     timerRef.current = setInterval(load, AUTO_REFRESH_MS);
     return () => clearInterval(timerRef.current);
   }, [load]);
-
-  useEffect(() => {
-    const refresh = async () => {
-      try { const d = await fleetAiGetPendingActions(); setPendingCount(Array.isArray(d) ? d.length : 0); } catch { /* noop */ }
-    };
-    refresh();
-    const t = setInterval(refresh, 30_000);
-    return () => clearInterval(t);
-  }, []);
 
   // ── métricas calculadas ────────────────────────────────────────────────────
   const total    = vehicles.length;
@@ -209,39 +178,10 @@ export default function FleetDashboardBody() {
                 {loading ? <Spinner size="sm" /> : <RefreshCw size={14} />}
                 <span>Atualizar</span>
               </button>
-              <button className={isDark ? "btn btn-outline-primary btn-sm d-flex align-items-center gap-1 position-relative" : "btn btn-soft-primary btn-sm d-flex align-items-center gap-1 position-relative"} onClick={() => setShowAiPanel(p => !p)}>
-                <MessageCircle size={14} /> Assistente IA
-                {pendingCount > 0 && (
-                  <span className="badge bg-warning text-dark position-absolute" style={{ top: -6, right: -6, fontSize: '0.6rem', borderRadius: 20, minWidth: 16, padding: '2px 5px' }}>
-                    {pendingCount}
-                  </span>
-                )}
-              </button>
               <Link href="/apps/fleet/control-tower" className={isDark ? "btn btn-outline-primary d-flex align-items-center gap-2" : "btn btn-primary d-flex align-items-center gap-2"}>
                 <MapPin size={16} /> Torre de Controle
               </Link>
             </div>
-          </div>
-
-          {/* ── IA Quick Actions ── */}
-          <div className="d-flex align-items-center gap-2 mb-4" style={{ overflowX: 'auto', scrollbarWidth: 'none' }}>
-            <div className="d-flex align-items-center gap-1 flex-shrink-0">
-              <div className="avatar avatar-xs avatar-soft-primary avatar-icon avatar-rounded">
-                <MessageCircle size={12} />
-              </div>
-              <span className="fw-semibold text-nowrap" style={{ fontSize: '0.8rem' }}>IA</span>
-            </div>
-            <div className="vr flex-shrink-0" style={{ height: 18 }} />
-            {AI_ACTIONS.map(({ icon: Icon, label, color, message }) => (
-              <button
-                key={label}
-                className={isDark ? `btn btn-outline-${color} btn-sm d-flex align-items-center gap-1 flex-shrink-0` : `btn btn-soft-${color} btn-sm d-flex align-items-center gap-1 flex-shrink-0`}
-                style={{ fontSize: '0.78rem' }}
-                onClick={() => openAiWithMessage(message)}
-              >
-                <Icon size={13} />{label}
-              </button>
-            ))}
           </div>
 
           {/* Onboarding */}
@@ -498,12 +438,6 @@ export default function FleetDashboardBody() {
 
         </div>
       </SimpleBar>
-      <FleetAiPanel
-        open={showAiPanel}
-        onClose={() => setShowAiPanel(false)}
-        initialMessage={aiInitialMessage}
-        actionKey={aiActionKey}
-      />
     </div>
   );
 }
