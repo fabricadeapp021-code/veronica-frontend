@@ -15,8 +15,8 @@ const EditCampaign = () => {
         <div className="hk-pg-body py-0">
             <div className={classNames("contactapp-wrap", { "contactapp-sidebar-toggle": showSidebar })}>
                 <CampaignAppSidebar />
-                <div className="contactapp-content">
-                    <div className="contactapp-detail-wrap">
+                <div className="contactapp-content" style={{ background: 'var(--bs-body-bg)' }}>
+                    <div className="contactapp-detail-wrap" style={{ background: 'var(--bs-body-bg)' }}>
                         <CampaignAppHeader toggleSidebar={() => setShowSidebar(!showSidebar)} show={showSidebar} />
                         <EditCampaignBody />
                     </div>

@@ -1,14 +1,12 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Button, Card, Col, Dropdown, Form, Modal, ProgressBar, Row } from 'react-bootstrap';
+import { Button, Card, Col, Form, Modal, ProgressBar, Row } from 'react-bootstrap';
 import {
     ArrowLeft,
     Check,
     CheckCircle,
-    ChevronDown,
     ChevronRight,
-    Clock,
     Link as LinkIcon,
     MessageCircle,
     PenTool,
@@ -23,67 +21,45 @@ import {
     Save,
 } from 'react-feather';
 import { listLeads } from '@/lib/api/services/leads';
-import { createCampaign, addLeadsToCampaign } from '@/lib/api/services/campaigns';
+import { createCampaign } from '@/lib/api/services/campaigns';
 import { showCustomAlert } from '@/components/CustomAlert';
 import { useAuth } from '@/lib/auth/AuthProvider';
+import { apiRequest } from '@/lib/api/client';
 
-const CAMPAIGN_KIND_OPTIONS = [
-    'Pesquisa',
-    'Informativa',
-    'Mobilização',
-    'Convite para Evento',
-    'Lembrete',
-    'Outro',
-];
+const FIXED_TEMPLATE = {
+    id: 'ola_vamos_conversar|pt_BR',
+    name: 'ola_vamos_conversar',
+    label: 'Olá, Vamos Conversar',
+    approved: true,
+};
 
-// id = nome exato do template no Meta Business Manager
-// approved = true → já aprovado e ativo; false → em análise, pode selecionar mas exibe aviso
-const WHATSAPP_TEMPLATE_OPTIONS = [
-    {
-        id: 'campanha_inicial|pt_BR',
-        label: 'Campanha Inicial',
-        description: 'Template genérico de abertura de conversa. Personalizado pela IA.',
-        approved: true,
-    },
-    {
-        id: 'convite_para_evento|pt_BR',
-        label: 'Convite para Evento',
-        description: 'Convite personalizado para evento político ou comunitário.',
-        approved: false,
-    },
-    {
-        id: 'lembrete_de_votacao|pt_BR',
-        label: 'Lembrete de Votação',
-        description: 'Lembrete de data, local e horário de votação.',
-        approved: false,
-    },
-    {
-        id: 'pesquisa_de_opiniao|pt_BR',
-        label: 'Pesquisa de Opinião',
-        description: 'Abertura de conversa para coleta de intenção de voto.',
-        approved: false,
-    },
-];
 const STEPS = [
-    { key: 'basic', title: 'Dados Básicos', subtitle: 'Nome e tipo da campanha', icon: PenTool },
-    { key: 'template', title: 'Template', subtitle: 'Template de mensagem WhatsApp', icon: MessageCircle },
-    { key: 'config', title: 'Configurações', subtitle: 'Horários e automações', icon: Clock },
-    { key: 'audience', title: 'Público', subtitle: 'Tags, segmentação e leads', icon: User },
-    { key: 'review', title: 'Revisar', subtitle: 'Confirmar e salvar', icon: Check },
+    { key: 'basic',    title: 'Dados Básicos', subtitle: 'Nome da campanha',             icon: PenTool },
+    { key: 'template', title: 'Template',       subtitle: 'Template de mensagem WhatsApp', icon: MessageCircle },
+    { key: 'audience', title: 'Público',        subtitle: 'Tags, segmentação e leads',     icon: User },
+    { key: 'review',   title: 'Revisar',        subtitle: 'Confirmar e salvar',            icon: Check },
 ];
 
 const INITIAL_TAG_OPTIONS = ['Zona Sul', 'Zona Norte', 'Zona Oeste', 'Prioridade', 'WhatsApp', 'Voz'];
 const INITIAL_SELECTED_TAGS = ['WhatsApp'];
 const LEADS_PAGE_SIZE = 5;
+
 const CreateCampaignWhatsAppBody = () => {
     const router = useRouter();
     const { status } = useAuth();
 
     const [step, setStep] = useState(1);
+
+    // Step 1 — Dados Básicos
     const [campaignName, setCampaignName] = useState('');
-    const [campaignKind, setCampaignKind] = useState('Pesquisa');
-    const [whatsAppTemplate, setWhatsAppTemplate] = useState('campanha_inicial|pt_BR');
-    const [triggerDate, setTriggerDate] = useState('');
+    const [agentId, setAgentId] = useState('');
+    const [agents, setAgents] = useState([]);
+    const [loadingAgents, setLoadingAgents] = useState(false);
+
+    // Step 2 — Template
+    const [bodyMessage, setBodyMessage] = useState('');
+
+    // Step 3 — Público
     const [tagOptions, setTagOptions] = useState(INITIAL_TAG_OPTIONS);
     const [selectedTags, setSelectedTags] = useState(INITIAL_SELECTED_TAGS);
     const [tagInput, setTagInput] = useState('');
@@ -92,141 +68,112 @@ const CreateCampaignWhatsAppBody = () => {
     const [selectedLeadIds, setSelectedLeadIds] = useState([]);
     const [leadOptions, setLeadOptions] = useState([]);
     const [loadingLeads, setLoadingLeads] = useState(false);
-    const [leadModalTab, setLeadModalTab] = useState('import');
+    const [leadModalTab, setLeadModalTab] = useState('list');
     const [leadModalPage, setLeadModalPage] = useState(1);
     const [importFile, setImportFile] = useState(null);
+
+    // Step 4 — Revisar / save
     const [saving, setSaving] = useState(false);
     const [saveError, setSaveError] = useState(null);
 
     const totalSteps = STEPS.length;
     const progressPercent = useMemo(() => Math.floor(((step - 1) / (totalSteps - 1)) * 100), [step, totalSteps]);
-    const linkedLeads = useMemo(() => leadOptions.filter((lead) => selectedLeadIds.includes(lead.id)), [leadOptions, selectedLeadIds]);
+    const linkedLeads = useMemo(() => leadOptions.filter((l) => selectedLeadIds.includes(l.id)), [leadOptions, selectedLeadIds]);
     const filteredLeads = useMemo(() => {
         const term = leadSearch.trim().toLowerCase();
         if (!term) return leadOptions;
-        return leadOptions.filter((lead) => [lead.name, lead.email, lead.phone].join(' ').toLowerCase().includes(term));
+        return leadOptions.filter((l) => [l.name, l.email, l.phone].join(' ').toLowerCase().includes(term));
     }, [leadOptions, leadSearch]);
-    const totalLeadPages = useMemo(
-        () => Math.max(1, Math.ceil(filteredLeads.length / LEADS_PAGE_SIZE)),
-        [filteredLeads.length]
-    );
+    const totalLeadPages = useMemo(() => Math.max(1, Math.ceil(filteredLeads.length / LEADS_PAGE_SIZE)), [filteredLeads.length]);
     const paginatedLeads = useMemo(() => {
         const start = (leadModalPage - 1) * LEADS_PAGE_SIZE;
         return filteredLeads.slice(start, start + LEADS_PAGE_SIZE);
     }, [filteredLeads, leadModalPage]);
-    const reviewDateLabel = useMemo(() => {
-        if (!triggerDate) return 'Imediato';
+
+    const selectedAgent = useMemo(() => agents.find((a) => a.id === agentId || a._id === agentId), [agents, agentId]);
+
+    const loadAgents = async () => {
         try {
-            return new Date(triggerDate).toLocaleString('pt-BR', {
-                day: '2-digit', month: '2-digit', year: 'numeric',
-                hour: '2-digit', minute: '2-digit',
-            });
+            setLoadingAgents(true);
+            const data = await apiRequest('/agents');
+            const list = Array.isArray(data) ? data : (data?.data ?? data?.agents ?? []);
+            setAgents(list);
+            if (list.length === 1) setAgentId(list[0].id || list[0]._id);
         } catch {
-            return triggerDate;
+            setAgents([]);
+        } finally {
+            setLoadingAgents(false);
         }
-    }, [triggerDate]);
+    };
 
     const loadLeads = async () => {
         try {
             setLoadingLeads(true);
-            let response = await listLeads({ maxSize: 1000 });
-            if (!response?.success) {
-                response = await listLeads();
-            }
-
-            if (response?.success && Array.isArray(response.data)) {
-                const formattedLeads = response.data.map((lead) => ({
-                    id: String(lead.id),
-                    name: lead.name || '-',
-                    email: lead.emailAddress || '-',
-                    phone: lead.phoneNumber || '-',
-                    status: String(lead.status || 'New'),
-                }));
-                setLeadOptions(formattedLeads);
-            } else {
-                setLeadOptions([]);
-            }
-        } catch (error) {
-            console.error('Erro ao carregar leads para campanha:', error);
+            const response = await listLeads({ limit: 1000 });
+            const rawLeads = Array.isArray(response?.leads)
+                ? response.leads
+                : Array.isArray(response)
+                ? response
+                : [];
+            setLeadOptions(rawLeads.map((l) => ({
+                id: String(l._id ?? l.id),
+                name: l.name || '-',
+                email: l.email || '-',
+                phone: l.phone || '-',
+                status: String(l.stage || 'novo'),
+            })));
+        } catch {
             setLeadOptions([]);
         } finally {
             setLoadingLeads(false);
         }
     };
 
-    const toggleTag = (tag) => {
-        setSelectedTags((prev) => (prev.includes(tag) ? prev.filter((item) => item !== tag) : [...prev, tag]));
-    };
-
-    const handleCreateTag = () => {
-        const normalized = tagInput.trim();
-        if (!normalized) return;
-        if (!tagOptions.includes(normalized)) {
-            setTagOptions((prev) => [...prev, normalized]);
-        }
-        setSelectedTags((prev) => (prev.includes(normalized) ? prev : [...prev, normalized]));
-        setTagInput('');
-    };
-
-    const toggleLead = (leadId) => {
-        setSelectedLeadIds((prev) => (prev.includes(leadId) ? prev.filter((id) => id !== leadId) : [...prev, leadId]));
-    };
-
-    const getLeadStatusClass = (statusValue) => {
-        const normalized = String(statusValue || '').trim().toLowerCase();
-        if (normalized === 'new' || normalized === 'novo') return 'bg-success-subtle text-success border border-success-subtle';
-        if (normalized === 'qualified' || normalized === 'engajado' || normalized === 'prioritario') return 'bg-primary-subtle text-primary border border-primary-subtle';
-        return 'bg-warning-subtle text-warning-emphasis border border-warning-subtle';
-    };
-
-    const handleOpenLeadsModal = () => {
-        setLeadModalTab('list');
-        setShowLeadsModal(true);
-    };
-
     useEffect(() => {
         if (status === 'authenticated') {
+            loadAgents();
             loadLeads();
-        }
-        if (status === 'guest') {
-            setLeadOptions([]);
         }
     }, [status]);
 
     useEffect(() => {
-        if (showLeadsModal && status === 'authenticated') {
-            loadLeads();
-        }
+        if (showLeadsModal && status === 'authenticated') loadLeads();
     }, [showLeadsModal, status]);
 
+    useEffect(() => { setLeadModalPage(1); }, [showLeadsModal, leadSearch, leadModalTab]);
     useEffect(() => {
-        setLeadModalPage(1);
-    }, [showLeadsModal, leadSearch, leadModalTab]);
-
-    useEffect(() => {
-        if (leadModalPage > totalLeadPages) {
-            setLeadModalPage(totalLeadPages);
-        }
+        if (leadModalPage > totalLeadPages) setLeadModalPage(totalLeadPages);
     }, [leadModalPage, totalLeadPages]);
 
-    const goNext = () => {
-        if (step < 5) setStep((prev) => prev + 1);
+    const toggleTag = (tag) => setSelectedTags((prev) => prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]);
+
+    const handleCreateTag = () => {
+        const n = tagInput.trim();
+        if (!n) return;
+        if (!tagOptions.includes(n)) setTagOptions((prev) => [...prev, n]);
+        setSelectedTags((prev) => prev.includes(n) ? prev : [...prev, n]);
+        setTagInput('');
     };
 
+    const toggleLead = (leadId) => setSelectedLeadIds((prev) => prev.includes(leadId) ? prev.filter((id) => id !== leadId) : [...prev, leadId]);
+
+    const getLeadStatusClass = (s) => {
+        const v = String(s || '').trim().toLowerCase();
+        if (v === 'new' || v === 'novo') return 'bg-success-subtle text-success border border-success-subtle';
+        if (['qualified', 'engajado', 'prioritario'].includes(v)) return 'bg-primary-subtle text-primary border border-primary-subtle';
+        return 'bg-warning-subtle text-warning-emphasis border border-warning-subtle';
+    };
+
+    const goNext = () => { if (step < totalSteps) setStep((p) => p + 1); };
     const goBack = () => {
-        if (step > 1) {
-            setStep((prev) => prev - 1);
-            return;
-        }
+        if (step > 1) { setStep((p) => p - 1); return; }
         router.push('/apps/campaigns/list');
     };
 
     const handleSaveCampaign = async () => {
-        if (!campaignName.trim()) {
-            setStep(1);
-            setSaveError('O nome da campanha é obrigatório.');
-            return;
-        }
+        if (!campaignName.trim()) { setStep(1); setSaveError('O nome da campanha é obrigatório.'); return; }
+        if (!agentId) { setStep(1); setSaveError('Selecione o agente responsável pela campanha.'); return; }
+        if (!bodyMessage.trim()) { setStep(2); setSaveError('A mensagem da campanha é obrigatória.'); return; }
 
         setSaving(true);
         setSaveError(null);
@@ -235,36 +182,20 @@ const CreateCampaignWhatsAppBody = () => {
         try {
             const payload = {
                 name: campaignName.trim(),
-                prompt: campaignName.trim(),
+                prompt: bodyMessage.trim(),
                 campaignType: 'whatsapp',
-                metadata: {
-                    campaignKind,
-                    whatsAppTemplate: whatsAppTemplate || null,
-                    triggerDate: triggerDate || null,
-                    tags: selectedTags,
-                },
+                agentId,
+                templateId: FIXED_TEMPLATE.id,
+                leadIds: selectedLeadIds,
+                metadata: { tags: selectedTags },
             };
 
             const response = await createCampaign(payload);
+            if (response?.success === false) throw new Error(response?.message || 'Erro ao criar campanha');
 
-            if (response?.success === false) {
-                throw new Error(response?.message || 'Erro ao criar campanha');
-            }
+            createdId = response?.campaign?._id ?? response?.campaign?.id ?? response?.data?.id ?? null;
 
-            createdId = response?.data?.id || null;
-
-            if (createdId && selectedLeadIds.length > 0) {
-                const leadsRes = await addLeadsToCampaign(createdId, selectedLeadIds);
-                if (!leadsRes?.success) {
-                    throw new Error('Campanha criada, mas houve erro ao vincular os leads.');
-                }
-            }
-
-            await showCustomAlert({
-                variant: 'success',
-                title: 'Campanha criada!',
-                text: `"${campaignName}" foi salva com sucesso.`,
-            });
+            await showCustomAlert({ variant: 'success', title: 'Campanha criada!', text: `"${campaignName}" foi salva com sucesso.` });
             router.push('/apps/campaigns/list');
         } catch (err) {
             console.error('Erro ao salvar campanha WhatsApp:', err);
@@ -279,10 +210,13 @@ const CreateCampaignWhatsAppBody = () => {
         }
     };
 
+    const STEP_TITLES = ['Dados Básicos', 'Template', 'Público', 'Revisar'];
+    const STEP_SUBTITLES = ['Nome da campanha', 'Template de mensagem WhatsApp', 'Tags, segmentação e leads', 'Confirmação final'];
+
     return (
         <div className="contact-body contact-detail-body">
             <style>{`
-                .voice-create-step-item {
+                .wc-step-item {
                     border-radius: 12px;
                     padding: 12px;
                     display: flex;
@@ -294,247 +228,149 @@ const CreateCampaignWhatsAppBody = () => {
                     text-align: left;
                     background: transparent;
                     cursor: pointer;
+                    transition: background .15s, border-color .15s, opacity .15s;
                 }
-                .voice-create-step-item.active {
-                    background: #dff4ef;
-                    border-color: #93ddd0;
+                .wc-step-item.active {
+                    background: rgba(21,160,133,.12);
+                    border-color: rgba(21,160,133,.4);
                     opacity: 1;
                 }
-                .voice-create-step-item.completed {
-                    opacity: 1;
-                }
-                .voice-create-step-icon {
-                    width: 28px;
-                    height: 28px;
-                    border-radius: 999px;
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    background: #ffffff;
-                    border: 1px solid #d8dee9;
+                .wc-step-item.completed { opacity: 1; }
+                .wc-step-icon {
+                    width: 28px; height: 28px; border-radius: 999px;
+                    display: inline-flex; align-items: center; justify-content: center;
+                    background: var(--bs-body-bg);
+                    border: 1px solid var(--bs-border-color);
                     flex-shrink: 0;
                 }
-                .voice-create-step-item.active .voice-create-step-icon {
-                    background: #15a085;
-                    border-color: #15a085;
-                    color: #ffffff;
-                }
-                .voice-create-step-item.completed .voice-create-step-icon {
-                    background: #dff4ef;
-                    border-color: #93ddd0;
-                    color: #15a085;
-                }
-                .voice-create-card {
-                    border: 1px solid #d8dee9;
+                .wc-step-item.active .wc-step-icon { background: #15a085; border-color: #15a085; color: #fff; }
+                .wc-step-item.completed .wc-step-icon { background: rgba(21,160,133,.15); border-color: rgba(21,160,133,.4); color: #15a085; }
+
+                .wc-card {
+                    border: 1px solid var(--bs-border-color);
                     border-radius: 14px;
-                    box-shadow: 0 2px 10px rgba(15, 23, 42, .03);
+                    background: var(--bs-body-bg);
+                    box-shadow: 0 2px 10px rgba(15,23,42,.04);
                 }
-                .voice-create-soft-btn {
-                    background: #ffffff !important;
-                    border: 1px solid #d8dee9 !important;
-                    color: #0f172a !important;
+                .wc-soft-btn {
+                    background: var(--bs-body-bg) !important;
+                    border: 1px solid var(--bs-border-color) !important;
+                    color: var(--bs-body-color) !important;
                     box-shadow: none !important;
                 }
-                .voice-create-soft-btn:hover,
-                .voice-create-soft-btn:focus,
-                .voice-create-soft-btn:active,
-                .voice-create-soft-btn.show {
-                    background: #ffffff !important;
-                    border-color: #c9d2df !important;
-                    color: #0f172a !important;
+                .wc-soft-btn:hover, .wc-soft-btn:focus, .wc-soft-btn:active, .wc-soft-btn.show {
+                    background: var(--bs-secondary-bg) !important;
+                    border-color: var(--bs-border-color) !important;
+                    color: var(--bs-body-color) !important;
                     box-shadow: none !important;
                 }
-                .voice-create-back-btn {
-                    width: 36px;
-                    height: 36px;
-                    padding: 0 !important;
-                    border-radius: 8px;
-                    display: inline-flex;
-                    align-items: center;
-                    justify-content: center;
-                    background: #ffffff !important;
-                    border: 1px solid #d8dee9 !important;
-                    color: #0f172a !important;
+                .wc-back-btn {
+                    width: 36px; height: 36px; padding: 0 !important; border-radius: 8px;
+                    display: inline-flex; align-items: center; justify-content: center;
+                    background: var(--bs-body-bg) !important;
+                    border: 1px solid var(--bs-border-color) !important;
+                    color: var(--bs-body-color) !important;
                     box-shadow: none !important;
                 }
-                .voice-create-back-btn:hover,
-                .voice-create-back-btn:focus,
-                .voice-create-back-btn:active {
-                    background: #f8fafc !important;
-                    border-color: #c9d2df !important;
-                    color: #0f172a !important;
+                .wc-back-btn:hover, .wc-back-btn:focus, .wc-back-btn:active {
+                    background: var(--bs-secondary-bg) !important;
+                    border-color: var(--bs-border-color) !important;
+                    color: var(--bs-body-color) !important;
                     box-shadow: none !important;
                 }
-                .voice-create-title-badge {
-                    background: #e6e9ff;
-                    color: #3f3fd8;
-                    border: 1px solid #cfd5ff;
+                .wc-title-badge {
+                    background: rgba(99,102,241,.1);
+                    color: #6366f1;
+                    border: 1px solid rgba(99,102,241,.3);
+                    border-radius: 999px; padding: 6px 14px;
+                    font-weight: 600; font-size: 14px;
+                    display: inline-flex; align-items: center; gap: 8px;
+                }
+                .wc-layout { min-height: calc(100vh - 160px); }
+                .wc-tag-chip {
                     border-radius: 999px;
-                    padding: 6px 14px;
-                    font-weight: 600;
-                    font-size: 14px;
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 8px;
+                    border: 1px solid var(--bs-border-color);
+                    background: var(--bs-secondary-bg);
+                    color: var(--bs-body-color);
+                    padding: 6px 12px; font-size: 14px;
+                    display: inline-flex; align-items: center; gap: 6px;
+                    cursor: pointer; transition: background .12s, color .12s;
                 }
-                .voice-create-layout {
-                    min-height: calc(100vh - 160px);
+                .wc-tag-chip.selected { background: #15a085; border-color: #15a085; color: #fff; }
+                .wc-empty-box {
+                    min-height: 190px; display: flex; align-items: center;
+                    justify-content: center; text-align: center; color: var(--bs-secondary-color);
                 }
-                .voice-create-select-btn {
-                    min-height: 40px !important;
-                    border-radius: 8px !important;
-                    text-align: left !important;
-                    padding: 8px 38px 8px 12px !important;
-                    position: relative !important;
-                    font-size: 16px !important;
-                    line-height: 1.4 !important;
-                }
-                .voice-create-select-btn .voice-create-select-text {
-                    display: block;
-                    text-align: left !important;
-                }
-                .voice-create-select-btn .voice-create-select-icon {
-                    position: absolute;
-                    right: 12px;
-                    top: 50%;
-                    transform: translateY(-50%);
-                    pointer-events: none;
-                }
-                .voice-create-script-box {
-                    min-height: 280px;
-                    resize: vertical;
-                }
-                .voice-create-tag-chip {
-                    border-radius: 999px;
-                    border: 1px solid #d8dee9;
-                    background: #f8fafc;
-                    color: #475467;
-                    padding: 6px 12px;
-                    font-size: 14px;
-                    display: inline-flex;
-                    align-items: center;
-                    gap: 6px;
-                    cursor: pointer;
-                }
-                .voice-create-tag-chip.selected {
-                    background: #15a085;
-                    border-color: #15a085;
-                    color: #ffffff;
-                }
-                .voice-create-empty-box {
-                    min-height: 190px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    text-align: center;
-                    color: #667085;
-                }
-                .voice-create-lead-table td,
-                .voice-create-lead-table th {
-                    vertical-align: middle;
-                }
-                .voice-create-modal-tab {
+                .wc-lead-table td, .wc-lead-table th { vertical-align: middle; }
+                .wc-modal-tab {
                     border: 1px solid transparent !important;
                     background: transparent !important;
-                    color: #667085 !important;
-                    min-height: 42px;
-                    border-radius: 10px !important;
+                    color: var(--bs-secondary-color) !important;
+                    min-height: 42px; border-radius: 10px !important;
                 }
-                .voice-create-modal-tab.active {
-                    background: #ffffff !important;
+                .wc-modal-tab.active {
+                    background: var(--bs-body-bg) !important;
                     border-color: #15a085 !important;
-                    color: #111827 !important;
+                    color: var(--bs-body-color) !important;
                     box-shadow: none !important;
                 }
-                .voice-create-modal-segmented {
-                    border: 1px solid #eaecf0;
-                    background: #f8fafc;
-                    border-radius: 12px;
-                    padding: 6px;
+                .wc-modal-segmented {
+                    border: 1px solid var(--bs-border-color);
+                    background: var(--bs-secondary-bg);
+                    border-radius: 12px; padding: 6px;
                 }
-                .voice-create-import-dropzone {
-                    border: 2px dashed #d0d5dd;
-                    border-radius: 14px;
-                    min-height: 210px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    text-align: center;
-                    padding: 16px;
-                    background: #f8fafc;
+                .wc-dropzone {
+                    border: 2px dashed var(--bs-border-color); border-radius: 14px;
+                    min-height: 210px; display: flex; align-items: center;
+                    justify-content: center; text-align: center; padding: 16px;
+                    background: var(--bs-secondary-bg);
                 }
-                .voice-create-file-sample {
-                    background: #f8fafc;
-                    border: 1px solid #eaecf0;
-                    border-radius: 10px;
-                    padding: 14px;
-                    color: #667085;
-                    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-                    font-size: 14px;
-                    white-space: pre-line;
+                .wc-file-sample {
+                    background: var(--bs-secondary-bg); border: 1px solid var(--bs-border-color);
+                    border-radius: 10px; padding: 14px; color: var(--bs-secondary-color);
+                    font-family: ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+                    font-size: 14px; white-space: pre-line;
                 }
-                .voice-create-import-btn {
-                    background: #9ddfce !important;
-                    border-color: #9ddfce !important;
-                    color: #ffffff !important;
+                .wc-review-title {
+                    color: var(--bs-secondary-color); letter-spacing: .06em;
+                    font-size: 12px; font-weight: 700; text-transform: uppercase; margin-bottom: 10px;
                 }
-                .voice-create-import-btn:hover,
-                .voice-create-import-btn:focus,
-                .voice-create-import-btn:active {
-                    background: #7fd1bc !important;
-                    border-color: #7fd1bc !important;
-                    color: #ffffff !important;
+                .wc-tpl-preview {
+                    background: rgba(21,160,133,.08);
+                    border: 1px solid rgba(21,160,133,.25);
+                    border-radius: 12px; padding: 16px;
+                    white-space: pre-line; line-height: 1.7; font-size: 15px;
                 }
-                .voice-create-review-title {
-                    color: #667085;
-                    letter-spacing: .06em;
-                    font-size: 12px;
-                    font-weight: 700;
-                    text-transform: uppercase;
-                    margin-bottom: 10px;
-                }
-                .voice-create-review-script {
-                    background: #f8fafc;
-                    border: 1px solid #eaecf0;
-                    border-radius: 10px;
-                    padding: 12px;
-                    max-height: 160px;
-                    overflow: auto;
-                    white-space: pre-wrap;
-                }
-                .voice-create-rule-chip {
-                    background: #f2f4f7;
-                    border: 1px solid #eaecf0;
-                    color: #344054;
-                    border-radius: 999px;
-                    padding: 4px 10px;
-                    font-size: 12px;
-                    font-weight: 600;
+                .wc-tpl-var {
+                    background: rgba(245,158,11,.18);
+                    border: 1px solid rgba(245,158,11,.35);
+                    border-radius: 4px; padding: 1px 5px;
+                    font-weight: 600; font-family: ui-monospace,monospace; font-size: 13px;
                 }
             `}</style>
 
-            <Row className="g-0 voice-create-layout">
-                <Col xl={2} lg={3} className="border-end bg-white px-3 py-3">
+            <Row className="g-0 wc-layout">
+                {/* Sidebar */}
+                <Col xl={2} lg={3} className="border-end px-3 py-3" style={{ background: 'var(--bs-body-bg)' }}>
                     <div className="text-uppercase text-muted small fw-semibold mb-3">Etapas</div>
                     <div className="d-flex flex-column gap-2">
                         {STEPS.map((item, index) => {
                             const Icon = item.icon;
-                            const stepNumber = index + 1;
-                            const isActive = stepNumber === step;
-                            const isCompleted = stepNumber < step;
-
+                            const sn = index + 1;
+                            const isActive = sn === step;
+                            const isCompleted = sn < step;
                             return (
                                 <button
                                     key={item.key}
                                     type="button"
-                                    onClick={() => setStep(stepNumber)}
-                                    className={`voice-create-step-item ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
+                                    onClick={() => setStep(sn)}
+                                    className={`wc-step-item ${isActive ? 'active' : ''} ${isCompleted ? 'completed' : ''}`}
                                 >
-                                    <span className="voice-create-step-icon">
+                                    <span className="wc-step-icon">
                                         {isCompleted ? <CheckCircle size={14} /> : <Icon size={14} />}
                                     </span>
                                     <div>
-                                        <div className="fw-semibold">{item.title}</div>
+                                        <div className="fw-semibold" style={{ fontSize: 14 }}>{item.title}</div>
                                         <div className="small text-muted">{item.subtitle}</div>
                                     </div>
                                 </button>
@@ -543,256 +379,187 @@ const CreateCampaignWhatsAppBody = () => {
                     </div>
                 </Col>
 
+                {/* Main */}
                 <Col xl={10} lg={9} className="px-4 py-4">
+                    {/* Header */}
                     <div className="d-flex flex-wrap align-items-center justify-content-between gap-3 mb-3">
                         <div className="d-flex align-items-center gap-3">
-                            <Button variant="outline-secondary" className="voice-create-back-btn" onClick={goBack}>
+                            <Button variant="outline-secondary" className="wc-back-btn" onClick={goBack}>
                                 <ArrowLeft size={18} />
                             </Button>
                             <h1 className="h3 mb-0">Nova Campanha WhatsApp</h1>
-                            <span className="voice-create-title-badge bg-success-subtle text-success">
+                            <span className="wc-title-badge">
                                 <MessageCircle size={14} />
                                 Campanha WhatsApp
                             </span>
                         </div>
-                        <Button variant="outline-secondary" className="voice-create-soft-btn" onClick={() => router.push('/apps/campaigns/list')}>
+                        <Button variant="outline-secondary" className="wc-soft-btn" onClick={() => router.push('/apps/campaigns/list')}>
                             Cancelar
                         </Button>
                     </div>
 
-                    <div className="d-flex flex-wrap justify-content-center justify-content-xl-end align-items-center gap-3 mb-2">
+                    {/* Credits bar */}
+                    <div className="d-flex flex-wrap justify-content-end align-items-center gap-3 mb-2">
                         <div className="d-flex align-items-center gap-1 small text-muted">
                             <LinkIcon size={13} style={{ color: '#f59e0b' }} />
                             <span>Créditos Restantes:</span>
-                            <strong className="text-dark">1.000</strong>
+                            <strong>1.000</strong>
                         </div>
-                        <div className="small text-muted">Totais: <strong className="text-dark">5.000</strong></div>
-                        <div className="rounded-pill" style={{ width: 56, height: 6, background: '#eceff3' }}>
+                        <div className="small text-muted">Totais: <strong>5.000</strong></div>
+                        <div className="rounded-pill" style={{ width: 56, height: 6, background: 'var(--bs-secondary-bg)' }}>
                             <div className="rounded-pill" style={{ width: '80%', height: '100%', background: '#f59e0b' }} />
                         </div>
-                        <Button variant="outline-secondary" className="voice-create-soft-btn d-inline-flex align-items-center gap-1">
-                            <ShoppingCart size={14} />
-                            Comprar Créditos
+                        <Button variant="outline-secondary" className="wc-soft-btn d-inline-flex align-items-center gap-1">
+                            <ShoppingCart size={14} /> Comprar Créditos
                         </Button>
                     </div>
 
                     <div style={{ maxWidth: 640, margin: '0 auto' }}>
+                        {/* Progress */}
                         <div className="d-flex justify-content-between align-items-center mb-2">
                             <div className="fw-semibold">Passo {step} de {totalSteps}</div>
                             <small className="text-muted">{progressPercent}% concluído</small>
                         </div>
                         <ProgressBar now={progressPercent} className="mb-4" style={{ height: 7 }} />
 
-                        <h2 className="mb-1">
-                            {step === 1 ? 'Dados Básicos' : step === 2 ? 'Template' : step === 3 ? 'Configurações' : step === 4 ? 'Público' : 'Revisar'}
-                        </h2>
-                        <p className="text-muted mb-4">
-                            {step === 1 ? 'Nome e tipo da campanha' : step === 2 ? 'Template de mensagem WhatsApp' : step === 3 ? 'Horários e automações' : step === 4 ? 'Tags, segmentação e leads' : 'Confirmação final'}
-                        </p>
+                        <h2 className="mb-1">{STEP_TITLES[step - 1]}</h2>
+                        <p className="text-muted mb-4">{STEP_SUBTITLES[step - 1]}</p>
 
+                        {/* ── Step 1: Dados Básicos ── */}
                         {step === 1 && (
-                            <Card className="voice-create-card mb-4">
+                            <Card className="wc-card mb-4">
                                 <Card.Body className="p-4">
                                     <Form.Group className="mb-4">
-                                        <Form.Label className="fw-semibold">Nome da Campanha *</Form.Label>
+                                        <Form.Label className="fw-semibold">Nome da Campanha <span className="text-danger">*</span></Form.Label>
                                         <Form.Control
                                             type="text"
-                                            placeholder="Ex: Pesquisa Zona Norte"
+                                            placeholder="Ex: Abordagem Inicial Imóveis"
                                             value={campaignName}
                                             onChange={(e) => setCampaignName(e.target.value)}
                                         />
-                                        <Form.Text className="text-muted">
-                                            Escolha um nome descritivo para identificar esta campanha.
-                                        </Form.Text>
+                                        <Form.Text className="text-muted">Escolha um nome descritivo para identificar esta campanha.</Form.Text>
                                     </Form.Group>
 
                                     <Form.Group>
-                                        <Form.Label className="fw-semibold">Tipo de Campanha</Form.Label>
-                                        <Dropdown>
-                                            <Dropdown.Toggle as="button" type="button" className="btn w-100 voice-create-soft-btn voice-create-select-btn no-caret">
-                                                <span className="voice-create-select-text">{campaignKind}</span>
-                                                <ChevronDown size={16} className="voice-create-select-icon" />
-                                            </Dropdown.Toggle>
-                                            <Dropdown.Menu className="w-100">
-                                                {CAMPAIGN_KIND_OPTIONS.map((item) => (
-                                                    <Dropdown.Item
-                                                        key={item}
-                                                        active={campaignKind === item}
-                                                        onClick={() => setCampaignKind(item)}
-                                                        className="d-flex align-items-center gap-2"
-                                                    >
-                                                        {campaignKind === item ? <Check size={14} /> : <span style={{ width: 14 }} />}
-                                                        {item}
-                                                    </Dropdown.Item>
-                                                ))}
-                                            </Dropdown.Menu>
-                                        </Dropdown>
+                                        <Form.Label className="fw-semibold">Agente Responsável <span className="text-danger">*</span></Form.Label>
+                                        <Form.Select
+                                            value={agentId}
+                                            onChange={(e) => setAgentId(e.target.value)}
+                                            disabled={loadingAgents}
+                                        >
+                                            <option value="">{loadingAgents ? 'Carregando agentes...' : 'Selecione o agente'}</option>
+                                            {agents.map((a) => (
+                                                <option key={a.id || a._id} value={a.id || a._id}>
+                                                    {a.name || a.agentName || a.id}
+                                                </option>
+                                            ))}
+                                        </Form.Select>
+                                        <Form.Text className="text-muted">O agente que conduzirá as conversas após o disparo.</Form.Text>
+                                    </Form.Group>
+                                </Card.Body>
+                            </Card>
+                        )}
+
+                        {/* ── Step 2: Template ── */}
+                        {step === 2 && (
+                            <Card className="wc-card mb-4">
+                                <Card.Body className="p-4">
+                                    <h5 className="d-flex align-items-center gap-2 mb-1">
+                                        <MessageCircle size={16} style={{ color: '#15a085' }} />
+                                        Template WhatsApp
+                                    </h5>
+                                    <p className="text-muted mb-4">Template aprovado que será usado como base para as mensagens.</p>
+
+                                    {/* Fixed template badge */}
+                                    <div className="d-flex align-items-center justify-content-between p-3 rounded-3 mb-4"
+                                        style={{ background: 'var(--bs-secondary-bg)', border: '1px solid var(--bs-border-color)' }}>
+                                        <div>
+                                            <div className="fw-semibold">{FIXED_TEMPLATE.label}</div>
+                                            <div className="small text-muted font-monospace mt-1">{FIXED_TEMPLATE.name}</div>
+                                        </div>
+                                        <span style={{ fontSize: 11, background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: 999, padding: '2px 10px', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                                            ✓ Aprovado
+                                        </span>
+                                    </div>
+
+                                    {/* Template preview */}
+                                    <div className="mb-4">
+                                        <div className="wc-review-title">Preview do Template</div>
+                                        <div className="wc-tpl-preview">
+                                            {'Olá, '}<span className="wc-tpl-var">{'{{lead_name}}'}</span>{'\n'}
+                                            {'Tudo bem? 😊\n\n'}
+                                            {'- '}<span className="wc-tpl-var">{'{{body_message}}'}</span>{'\n\n'}
+                                            {'Vamos conversar?'}
+                                        </div>
+                                    </div>
+
+                                    {/* Body message */}
+                                    <Form.Group>
+                                        <Form.Label className="fw-semibold">
+                                            Mensagem da Campanha <span className="text-danger">*</span>
+                                        </Form.Label>
+                                        <Form.Control
+                                            as="textarea"
+                                            rows={3}
+                                            placeholder="Ex: Vi que você demonstrou interesse em um dos nossos imóveis."
+                                            value={bodyMessage}
+                                            onChange={(e) => setBodyMessage(e.target.value)}
+                                        />
                                         <Form.Text className="text-muted">
-                                            O tipo influencia como a IA gerará o script da mensagem.
+                                            Substituirá <code>{'{{body_message}}'}</code> no template. O nome do lead é preenchido automaticamente.
                                         </Form.Text>
                                     </Form.Group>
                                 </Card.Body>
                             </Card>
                         )}
 
-                                                {step === 2 && (
-                            <>
-                                <Card className="voice-create-card mb-4">
-                                    <Card.Body className="p-4">
-                                        <h5 className="d-flex align-items-center gap-2 mb-3">
-                                            <MessageCircle size={16} style={{ color: '#15a085' }} />
-                                            Template WhatsApp
-                                        </h5>
-                                        <p className="text-muted mb-4">Selecione o template aprovado que ser? usado como base para as mensagens.</p>
-
-                                        <Form.Group>
-                                            <Form.Label className="fw-semibold">Template</Form.Label>
-                                            <Dropdown>
-                                                <Dropdown.Toggle as="button" type="button" className="btn w-100 voice-create-soft-btn voice-create-select-btn no-caret">
-                                                    <span className="voice-create-select-text">
-                                                        {(() => {
-                                                            const t = WHATSAPP_TEMPLATE_OPTIONS.find(o => o.id === whatsAppTemplate);
-                                                            return t ? t.label : 'Selecione o template';
-                                                        })()}
-                                                    </span>
-                                                    <ChevronDown size={16} className="voice-create-select-icon" />
-                                                </Dropdown.Toggle>
-                                                <Dropdown.Menu className="w-100">
-                                                    {WHATSAPP_TEMPLATE_OPTIONS.map((tpl) => (
-                                                        <Dropdown.Item
-                                                            key={tpl.id}
-                                                            active={whatsAppTemplate === tpl.id}
-                                                            onClick={() => setWhatsAppTemplate(tpl.id)}
-                                                            className="d-flex align-items-start gap-2 py-2"
-                                                        >
-                                                            <span style={{ marginTop: 2, flexShrink: 0, width: 14 }}>
-                                                                {whatsAppTemplate === tpl.id ? <Check size={14} /> : null}
-                                                            </span>
-                                                            <div style={{ flex: 1 }}>
-                                                                <div className="d-flex align-items-center gap-2">
-                                                                    <span className="fw-medium">{tpl.label}</span>
-                                                                    {tpl.approved ? (
-                                                                        <span style={{ fontSize: 11, background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: 999, padding: '1px 8px', fontWeight: 600 }}>
-                                                                            ✓ Aprovado
-                                                                        </span>
-                                                                    ) : (
-                                                                        <span style={{ fontSize: 11, background: '#fefce8', color: '#92400e', border: '1px solid #fde68a', borderRadius: 999, padding: '1px 8px', fontWeight: 600 }}>
-                                                                            ⚠️ Em análise
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 2 }}>{tpl.description}</div>
-                                                            </div>
-                                                        </Dropdown.Item>
-                                                    ))}
-                                                </Dropdown.Menu>
-                                            </Dropdown>
-                                            {whatsAppTemplate && !WHATSAPP_TEMPLATE_OPTIONS.find(t => t.id === whatsAppTemplate)?.approved && (
-                                                <div style={{ marginTop: 8, padding: '8px 12px', background: '#fefce8', border: '1px solid #fde68a', borderRadius: 8, fontSize: 13, color: '#92400e' }}>
-                                                    ⚠️ Este template ainda está em análise pela Meta. O disparo só funcionará após aprovação.
-                                                </div>
-                                            )}
-                                            <Form.Text className="text-muted">
-                                                Somente templates aprovados pela Meta podem ser usados em disparos em massa.
-                                            </Form.Text>
-                                        </Form.Group>
-                                    </Card.Body>
-                                </Card>
-                            </>
-                        )}
-
+                        {/* ── Step 3: Público ── */}
                         {step === 3 && (
                             <>
-                                <Card className="voice-create-card mb-4">
-                                    <Card.Body className="p-4">
-                                        <h5 className="d-flex align-items-center gap-2 mb-3">
-                                            <Clock size={16} style={{ color: '#15a085' }} />
-                                            Data e Horário das Mensagens
-                                        </h5>
-                                        <p className="text-muted mb-4">
-                                            Deixe a data em branco para disparar imediatamente ao clicar em &ldquo;Iniciar&rdquo;.
-                                            Se preencher uma data futura, o disparo será agendado automaticamente para aquele momento.
-                                        </p>
-
-                                        <Form.Group className="mb-3">
-                                            <Form.Label className="fw-semibold">Data e Hora do Disparo</Form.Label>
-                                            <Form.Control
-                                                type="datetime-local"
-                                                value={triggerDate}
-                                                onChange={(e) => setTriggerDate(e.target.value)}
-                                            />
-                                            <Form.Text className="text-muted">Deixe em branco para disparar imediatamente ao clicar em &ldquo;Iniciar&rdquo;.</Form.Text>
-                                        </Form.Group>
-
-                                    </Card.Body>
-                                </Card>
-
-                            </>
-                        )}
-
-                        {step === 4 && (
-                            <>
-                                <Card className="voice-create-card mb-4">
+                                <Card className="wc-card mb-4">
                                     <Card.Body className="p-4">
                                         <h5 className="d-flex align-items-center gap-2 mb-3">
                                             <Tag size={16} style={{ color: '#15a085' }} />
                                             Tags da Campanha
                                         </h5>
                                         <p className="text-muted mb-3">Adicione tags para organizar e filtrar suas campanhas.</p>
-
                                         <div className="d-flex flex-wrap gap-2 mb-3">
                                             <Form.Control
                                                 type="text"
-                                                style={{ maxWidth: 320 }}
+                                                style={{ maxWidth: 280 }}
                                                 placeholder="Nome da tag..."
                                                 value={tagInput}
                                                 onChange={(e) => setTagInput(e.target.value)}
-                                                onKeyDown={(e) => {
-                                                    if (e.key === 'Enter') {
-                                                        e.preventDefault();
-                                                        handleCreateTag();
-                                                    }
-                                                }}
+                                                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleCreateTag(); } }}
                                             />
-                                            <Button variant="outline-secondary" className="voice-create-soft-btn d-inline-flex align-items-center gap-2" onClick={handleCreateTag}>
-                                                <Plus size={14} />
-                                                Criar
+                                            <Button variant="outline-secondary" className="wc-soft-btn d-inline-flex align-items-center gap-2" onClick={handleCreateTag}>
+                                                <Plus size={14} /> Criar
                                             </Button>
                                         </div>
-
                                         <div className="d-flex flex-wrap gap-2 mb-3">
                                             {tagOptions.map((tag) => (
-                                                <button
-                                                    key={tag}
-                                                    type="button"
-                                                    className={`voice-create-tag-chip ${selectedTags.includes(tag) ? 'selected' : ''}`}
-                                                    onClick={() => toggleTag(tag)}
-                                                >
-                                                    <Tag size={12} />
-                                                    {tag}
+                                                <button key={tag} type="button" className={`wc-tag-chip ${selectedTags.includes(tag) ? 'selected' : ''}`} onClick={() => toggleTag(tag)}>
+                                                    <Tag size={12} />{tag}
                                                 </button>
                                             ))}
                                         </div>
-
                                         <small className="text-muted">{selectedTags.length} tag(s) selecionada(s)</small>
                                     </Card.Body>
                                 </Card>
 
-                                <Card className="voice-create-card mb-4">
+                                <Card className="wc-card mb-4">
                                     <Card.Body className="p-4">
                                         <div className="d-flex align-items-start justify-content-between gap-3 mb-3">
                                             <div>
                                                 <h5 className="mb-1">Leads Vinculados</h5>
                                                 <p className="text-muted mb-0">Escolha quais contatos receberão as mensagens.</p>
                                             </div>
-                                            <Button variant="success" className="d-inline-flex align-items-center gap-2" onClick={handleOpenLeadsModal}>
-                                                <Plus size={14} />
-                                                Adicionar Leads
+                                            <Button variant="success" className="d-inline-flex align-items-center gap-2" onClick={() => { setLeadModalTab('list'); setShowLeadsModal(true); }}>
+                                                <Plus size={14} /> Adicionar Leads
                                             </Button>
                                         </div>
-
                                         {linkedLeads.length === 0 ? (
-                                            <div className="voice-create-empty-box">
+                                            <div className="wc-empty-box">
                                                 <div>
                                                     <Users size={42} className="text-muted mb-2" />
                                                     <div className="h5 fw-normal mb-1">Nenhum lead adicionado</div>
@@ -801,24 +568,15 @@ const CreateCampaignWhatsAppBody = () => {
                                             </div>
                                         ) : (
                                             <div className="table-responsive">
-                                                <table className="table table-sm align-middle mb-0 voice-create-lead-table">
-                                                    <thead>
-                                                        <tr>
-                                                            <th>Nome</th>
-                                                            <th>Email</th>
-                                                            <th>Telefone</th>
-                                                            <th>Status</th>
-                                                        </tr>
-                                                    </thead>
+                                                <table className="table table-sm align-middle mb-0 wc-lead-table">
+                                                    <thead><tr><th>Nome</th><th>Email</th><th>Telefone</th><th>Status</th></tr></thead>
                                                     <tbody>
                                                         {linkedLeads.map((lead) => (
                                                             <tr key={lead.id}>
                                                                 <td>{lead.name}</td>
                                                                 <td>{lead.email}</td>
                                                                 <td>{lead.phone}</td>
-                                                                <td>
-                                                                    <span className={`badge rounded-pill ${getLeadStatusClass(lead.status)}`}>{lead.status}</span>
-                                                                </td>
+                                                                <td><span className={`badge rounded-pill ${getLeadStatusClass(lead.status)}`}>{lead.status}</span></td>
                                                             </tr>
                                                         ))}
                                                     </tbody>
@@ -830,7 +588,8 @@ const CreateCampaignWhatsAppBody = () => {
                             </>
                         )}
 
-                        {step === 5 && (
+                        {/* ── Step 4: Revisar ── */}
+                        {step === 4 && (
                             <>
                                 <p className="text-muted mb-4">Revise os dados antes de salvar. Você pode voltar a qualquer etapa clicando no menu lateral.</p>
                                 {saveError && (
@@ -839,102 +598,59 @@ const CreateCampaignWhatsAppBody = () => {
                                     </div>
                                 )}
 
-                                <Card className="voice-create-card mb-4">
+                                <Card className="wc-card mb-4">
                                     <Card.Body className="p-4">
-                                        <div className="voice-create-review-title">Dados Básicos</div>
+                                        <div className="wc-review-title">Dados Básicos</div>
                                         <Row className="g-3">
-                                            <Col md={6}><span className="text-muted">Nome:</span> {campaignName || '-'}</Col>
-                                            <Col md={6}><span className="text-muted">Tipo:</span> {campaignKind}</Col>
+                                            <Col md={6}><span className="text-muted">Nome:</span> <strong>{campaignName || '-'}</strong></Col>
+                                            <Col md={6}><span className="text-muted">Agente:</span> <strong>{selectedAgent?.name || selectedAgent?.agentName || agentId || '-'}</strong></Col>
                                         </Row>
                                     </Card.Body>
                                 </Card>
 
-                                                                <Card className="voice-create-card mb-4">
+                                <Card className="wc-card mb-4">
                                     <Card.Body className="p-4">
-                                        <div className="voice-create-review-title">Template</div>
-                                        <Row className="g-3">
-                                            <Col md={12}>
-                                                <span className="text-muted">Template selecionado:</span>{' '}
-                                                {(() => {
-                                                    const t = WHATSAPP_TEMPLATE_OPTIONS.find(o => o.id === whatsAppTemplate);
-                                                    if (!t) return '-';
-                                                    return (
-                                                        <span className="d-inline-flex align-items-center gap-2">
-                                                            {t.label}
-                                                            {t.approved ? (
-                                                                <span style={{ fontSize: 11, background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: 999, padding: '1px 8px', fontWeight: 600 }}>✓ Aprovado</span>
-                                                            ) : (
-                                                                <span style={{ fontSize: 11, background: '#fefce8', color: '#92400e', border: '1px solid #fde68a', borderRadius: 999, padding: '1px 8px', fontWeight: 600 }}>⚠️ Em análise</span>
-                                                            )}
-                                                        </span>
-                                                    );
-                                                })()}
-                                            </Col>
-                                        </Row>
+                                        <div className="wc-review-title">Template</div>
+                                        <div className="d-flex align-items-center gap-2 mb-3">
+                                            <span className="fw-medium">{FIXED_TEMPLATE.label}</span>
+                                            <span style={{ fontSize: 11, background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: 999, padding: '1px 8px', fontWeight: 600 }}>✓ Aprovado</span>
+                                        </div>
+                                        <div className="text-muted small mb-1">Mensagem:</div>
+                                        <div className="p-3 rounded-3 small" style={{ background: 'var(--bs-secondary-bg)', border: '1px solid var(--bs-border-color)', whiteSpace: 'pre-wrap' }}>
+                                            {bodyMessage || <em className="text-muted">–</em>}
+                                        </div>
                                     </Card.Body>
                                 </Card>
 
-                                <Card className="voice-create-card mb-4">
+                                <Card className="wc-card mb-4">
                                     <Card.Body className="p-4">
-                                        <div className="voice-create-review-title">Configurações</div>
-                                        <Row className="g-3">
-                                            <Col md={12}>
-                                                <span className="text-muted">Disparo:</span>{' '}
-                                                {triggerDate ? (
-                                                    <span className="d-inline-flex align-items-center gap-2">
-                                                        <strong>{reviewDateLabel}</strong>
-                                                        <span style={{ fontSize: 11, background: '#fef9c3', color: '#92400e', border: '1px solid #fde68a', borderRadius: 999, padding: '2px 8px', fontWeight: 600 }}>
-                                                            ⏰ Agendado
-                                                        </span>
-                                                    </span>
-                                                ) : (
-                                                    <span className="d-inline-flex align-items-center gap-2">
-                                                        <strong>Imediato</strong>
-                                                        <span style={{ fontSize: 11, background: '#dcfce7', color: '#15803d', border: '1px solid #bbf7d0', borderRadius: 999, padding: '2px 8px', fontWeight: 600 }}>
-                                                            ⚡ Ao iniciar
-                                                        </span>
-                                                    </span>
-                                                )}
-                                            </Col>
-                                        </Row>
-                                    </Card.Body>
-                                </Card>
-
-                                <Card className="voice-create-card mb-4">
-                                    <Card.Body className="p-4">
-                                        <div className="voice-create-review-title">Público</div>
+                                        <div className="wc-review-title">Público</div>
                                         <Row className="g-3">
                                             <Col md={6}><span className="text-muted">Tags:</span> {selectedTags.length ? selectedTags.join(', ') : '-'}</Col>
-                                            <Col md={6}><span className="text-muted">Leads:</span> {linkedLeads.length} lead(s)</Col>
+                                            <Col md={6}><span className="text-muted">Leads:</span> <strong>{linkedLeads.length} lead(s)</strong></Col>
                                         </Row>
                                     </Card.Body>
                                 </Card>
                             </>
                         )}
+
                         <hr className="my-4" />
 
                         <div className="d-flex justify-content-between align-items-center">
-                            <Button variant="outline-secondary" className="voice-create-soft-btn d-inline-flex align-items-center gap-2" onClick={goBack}>
+                            <Button variant="outline-secondary" className="wc-soft-btn d-inline-flex align-items-center gap-2" onClick={goBack}>
                                 <ArrowLeft size={15} />
                                 {step === 1 ? 'Cancelar' : 'Voltar'}
                             </Button>
-                            {step < 5 ? (
+                            {step < totalSteps ? (
                                 <Button variant="success" className="px-4 d-inline-flex align-items-center gap-2" onClick={goNext}>
-                                    Próximo passo
-                                    <ChevronRight size={16} />
+                                    Próximo Passo <ChevronRight size={16} />
                                 </Button>
                             ) : (
                                 <Button variant="success" className="px-4 d-inline-flex align-items-center gap-2" onClick={handleSaveCampaign} disabled={saving}>
                                     {saving ? (
-                                        <>
-                                            <span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" />
-                                            Salvando...
-                                        </>
+                                        <><span className="spinner-border spinner-border-sm" role="status" aria-hidden="true" /> Salvando...</>
                                     ) : (
-                                        <>
-                                            <Save size={15} />
-                                            Salvar Campanha
-                                        </>
+                                        <><Save size={15} /> Salvar Campanha</>
                                     )}
                                 </Button>
                             )}
@@ -943,6 +659,7 @@ const CreateCampaignWhatsAppBody = () => {
                 </Col>
             </Row>
 
+            {/* Leads Modal */}
             <Modal show={showLeadsModal} onHide={() => setShowLeadsModal(false)} centered size="lg">
                 <Modal.Header className="border-0 pb-4">
                     <Modal.Title>Adicionar Leads à Campanha</Modal.Title>
@@ -951,76 +668,33 @@ const CreateCampaignWhatsAppBody = () => {
                     </Button>
                 </Modal.Header>
                 <Modal.Body className="pt-1">
-                    <div className="d-flex gap-2 mb-3 voice-create-modal-segmented">
-                        <Button
-                            type="button"
-                            className={`voice-create-modal-tab flex-grow-1 d-inline-flex align-items-center justify-content-center gap-2 ${leadModalTab === 'list' ? 'active' : ''}`}
-                            onClick={() => setLeadModalTab('list')}
-                        >
-                            <Search size={14} />
-                            Selecionar da Lista
+                    <div className="d-flex gap-2 mb-3 wc-modal-segmented">
+                        <Button type="button" className={`wc-modal-tab flex-grow-1 d-inline-flex align-items-center justify-content-center gap-2 ${leadModalTab === 'list' ? 'active' : ''}`} onClick={() => setLeadModalTab('list')}>
+                            <Search size={14} /> Selecionar da Lista
                         </Button>
-                        <Button
-                            type="button"
-                            className={`voice-create-modal-tab flex-grow-1 d-inline-flex align-items-center justify-content-center gap-2 ${leadModalTab === 'import' ? 'active' : ''}`}
-                            onClick={() => setLeadModalTab('import')}
-                        >
-                            <Upload size={14} />
-                            Importar CSV/Excel
+                        <Button type="button" className={`wc-modal-tab flex-grow-1 d-inline-flex align-items-center justify-content-center gap-2 ${leadModalTab === 'import' ? 'active' : ''}`} onClick={() => setLeadModalTab('import')}>
+                            <Upload size={14} /> Importar CSV/Excel
                         </Button>
                     </div>
 
                     {leadModalTab === 'list' && (
                         <>
                             <div className="position-relative mb-3">
-                                <Form.Control
-                                    type="text"
-                                    placeholder="Buscar por nome, telefone ou email..."
-                                    value={leadSearch}
-                                    onChange={(e) => setLeadSearch(e.target.value)}
-                                    className="ps-5"
-                                />
+                                <Form.Control type="text" placeholder="Buscar por nome, telefone ou email..." value={leadSearch} onChange={(e) => setLeadSearch(e.target.value)} className="ps-5" />
                                 <Search size={16} className="position-absolute top-50 start-0 translate-middle-y ms-3 text-muted" />
                             </div>
-
                             <p className="text-muted mb-2">Selecione os leads que deseja adicionar à campanha:</p>
                             <div className="table-responsive border rounded-3">
-                                <table className="table align-middle mb-0 voice-create-lead-table">
-                                    <thead>
-                                        <tr>
-                                            <th style={{ width: 44 }} />
-                                            <th>NOME</th>
-                                            <th>EMAIL</th>
-                                            <th>TELEFONE</th>
-                                            <th>STATUS</th>
-                                        </tr>
-                                    </thead>
+                                <table className="table align-middle mb-0 wc-lead-table">
+                                    <thead><tr><th style={{ width: 44 }} /><th>NOME</th><th>EMAIL</th><th>TELEFONE</th><th>STATUS</th></tr></thead>
                                     <tbody>
-                                        {loadingLeads && (
-                                            <tr>
-                                                <td colSpan={5} className="text-center py-4 text-muted">Carregando leads...</td>
-                                            </tr>
-                                        )}
-                                        {!loadingLeads && filteredLeads.length === 0 && (
-                                            <tr>
-                                                <td colSpan={5} className="text-center py-4 text-muted">Nenhum lead encontrado.</td>
-                                            </tr>
-                                        )}
+                                        {loadingLeads && <tr><td colSpan={5} className="text-center py-4 text-muted">Carregando leads...</td></tr>}
+                                        {!loadingLeads && filteredLeads.length === 0 && <tr><td colSpan={5} className="text-center py-4 text-muted">Nenhum lead encontrado.</td></tr>}
                                         {!loadingLeads && paginatedLeads.map((lead) => (
                                             <tr key={lead.id}>
-                                                <td>
-                                                    <Form.Check
-                                                        type="checkbox"
-                                                        checked={selectedLeadIds.includes(lead.id)}
-                                                        onChange={() => toggleLead(lead.id)}
-                                                    />
-                                                </td>
-                                                <td>{lead.name}</td>
-                                                <td>{lead.email}</td>
-                                                <td>{lead.phone}</td>
-                                                <td>
-                                                    <span className={`badge rounded-pill ${getLeadStatusClass(lead.status)}`}>{lead.status}</span>
-                                                </td>
+                                                <td><Form.Check type="checkbox" checked={selectedLeadIds.includes(lead.id)} onChange={() => toggleLead(lead.id)} /></td>
+                                                <td>{lead.name}</td><td>{lead.email}</td><td>{lead.phone}</td>
+                                                <td><span className={`badge rounded-pill ${getLeadStatusClass(lead.status)}`}>{lead.status}</span></td>
                                             </tr>
                                         ))}
                                     </tbody>
@@ -1028,25 +702,9 @@ const CreateCampaignWhatsAppBody = () => {
                             </div>
                             {!loadingLeads && filteredLeads.length > LEADS_PAGE_SIZE && (
                                 <div className="d-flex justify-content-end align-items-center gap-2 mt-3">
-                                    <Button
-                                        variant="outline-secondary"
-                                        className="voice-create-soft-btn px-2 py-1"
-                                        onClick={() => setLeadModalPage((prev) => Math.max(1, prev - 1))}
-                                        disabled={leadModalPage === 1}
-                                    >
-                                        ‹
-                                    </Button>
-                                    <small className="text-muted">
-                                        Página {leadModalPage} de {totalLeadPages}
-                                    </small>
-                                    <Button
-                                        variant="outline-secondary"
-                                        className="voice-create-soft-btn px-2 py-1"
-                                        onClick={() => setLeadModalPage((prev) => Math.min(totalLeadPages, prev + 1))}
-                                        disabled={leadModalPage === totalLeadPages}
-                                    >
-                                        ›
-                                    </Button>
+                                    <Button variant="outline-secondary" className="wc-soft-btn px-2 py-1" onClick={() => setLeadModalPage((p) => Math.max(1, p - 1))} disabled={leadModalPage === 1}>‹</Button>
+                                    <small className="text-muted">Página {leadModalPage} de {totalLeadPages}</small>
+                                    <Button variant="outline-secondary" className="wc-soft-btn px-2 py-1" onClick={() => setLeadModalPage((p) => Math.min(totalLeadPages, p + 1))} disabled={leadModalPage === totalLeadPages}>›</Button>
                                 </div>
                             )}
                         </>
@@ -1054,51 +712,32 @@ const CreateCampaignWhatsAppBody = () => {
 
                     {leadModalTab === 'import' && (
                         <>
-                            <div className="voice-create-import-dropzone mb-3">
+                            <div className="wc-dropzone mb-3">
                                 <div>
                                     <Upload size={40} className="text-muted mb-2" />
                                     <div className="h5 fw-normal mb-1">Arraste seu arquivo aqui</div>
                                     <div className="text-muted mb-3">ou clique para selecionar (CSV, XLS, XLSX)</div>
-                                    <Form.Control
-                                        id="campaign-leads-import-file"
-                                        type="file"
-                                        accept=".csv,.xls,.xlsx"
-                                        className="d-none"
-                                        onChange={(e) => setImportFile(e.target.files?.[0] || null)}
-                                    />
-                                    <Button
-                                        variant="outline-secondary"
-                                        className="voice-create-soft-btn d-inline-flex align-items-center gap-2"
-                                        onClick={() => document.getElementById('campaign-leads-import-file')?.click()}
-                                    >
-                                        <Upload size={14} />
-                                        Selecionar Arquivo
+                                    <Form.Control id="campaign-leads-import-file" type="file" accept=".csv,.xls,.xlsx" className="d-none" onChange={(e) => setImportFile(e.target.files?.[0] || null)} />
+                                    <Button variant="outline-secondary" className="wc-soft-btn d-inline-flex align-items-center gap-2" onClick={() => document.getElementById('campaign-leads-import-file')?.click()}>
+                                        <Upload size={14} /> Selecionar Arquivo
                                     </Button>
                                     {importFile && <div className="small text-muted mt-2">{importFile.name}</div>}
                                 </div>
                             </div>
-
                             <div className="fw-semibold mb-2">Formato esperado:</div>
-                            <div className="voice-create-file-sample">
-                                nome,email,telefone,status{'\n'}
-                                João Silva,joao@email.com,+5521999887766,New
-                            </div>
+                            <div className="wc-file-sample">nome,email,telefone,status{'\n'}João Silva,joao@email.com,+5521999887766,New</div>
                         </>
                     )}
                 </Modal.Body>
                 <Modal.Footer className="border-0 pt-2">
-                    <Button variant="outline-secondary" className="voice-create-soft-btn" onClick={() => setShowLeadsModal(false)}>
-                        Cancelar
-                    </Button>
+                    <Button variant="outline-secondary" className="wc-soft-btn" onClick={() => setShowLeadsModal(false)}>Cancelar</Button>
                     {leadModalTab === 'list' ? (
                         <Button variant="success" className="d-inline-flex align-items-center gap-2" onClick={() => setShowLeadsModal(false)}>
-                            <Plus size={14} />
-                            Adicionar
+                            <Plus size={14} /> Adicionar
                         </Button>
                     ) : (
-                        <Button variant="success" className="voice-create-import-btn d-inline-flex align-items-center gap-2" disabled={!importFile}>
-                            <Upload size={14} />
-                            Importar
+                        <Button variant="success" className="d-inline-flex align-items-center gap-2" disabled={!importFile}>
+                            <Upload size={14} /> Importar
                         </Button>
                     )}
                 </Modal.Footer>

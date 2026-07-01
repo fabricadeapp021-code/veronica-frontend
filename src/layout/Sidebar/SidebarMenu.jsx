@@ -2,6 +2,27 @@ import * as Icons from 'tabler-icons-react';
 
 export const SidebarMenu = [
     {
+        group: 'COMERCIAL',
+        contents: [
+            {
+                id: 'dash_leads',
+                name: 'Leads',
+                icon: <Icons.Users />,
+                path: '/apps/leads/list',
+                activePathPrefix: '/apps/leads',
+                grp_name: 'comercial',
+            },
+            {
+                id: 'dash_campaigns',
+                name: 'Campanhas',
+                icon: <Icons.Speakerphone />,
+                path: '/apps/campaigns/list',
+                activePathPrefix: '/apps/campaigns',
+                grp_name: 'comercial',
+            },
+        ],
+    },
+    {
         group: 'ADMIN',
         contents: [
             {

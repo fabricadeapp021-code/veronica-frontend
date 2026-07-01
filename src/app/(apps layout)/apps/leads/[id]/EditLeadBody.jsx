@@ -63,9 +63,9 @@ const EditLeadBody = () => {
     });
 
     const sectionCardStyle = {
-        border: '1px solid #d8dee9',
+        border: '1px solid var(--bs-border-color)',
         borderRadius: '12px',
-        background: '#fff',
+        background: 'var(--bs-body-bg)',
     };
 
     const submitBtnStyle = {
@@ -225,7 +225,30 @@ const EditLeadBody = () => {
     }
 
     return (
-        <div className="contact-body contact-detail-body">
+        <>
+            <style>{`
+                .lead-edit-page .form-control,
+                .lead-edit-page .form-select {
+                    background-color: var(--bs-tertiary-bg, var(--bs-body-bg)) !important;
+                    border-color: var(--bs-border-color) !important;
+                    color: var(--bs-body-color) !important;
+                }
+                .lead-edit-page .form-control::placeholder {
+                    color: var(--bs-secondary-color) !important;
+                }
+                .lead-edit-page .form-control:focus,
+                .lead-edit-page .form-select:focus {
+                    background-color: var(--bs-tertiary-bg, var(--bs-body-bg)) !important;
+                    border-color: var(--bs-primary) !important;
+                    color: var(--bs-body-color) !important;
+                    box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.15) !important;
+                }
+                .lead-edit-page .form-select option {
+                    background-color: var(--bs-body-bg);
+                    color: var(--bs-body-color);
+                }
+            `}</style>
+        <div className="contact-body contact-detail-body lead-edit-page">
             <SimpleBar className="nicescroll-bar">
                 <div className="contactapp-detail-wrap">
                     <Card>
@@ -408,6 +431,7 @@ const EditLeadBody = () => {
                 </div>
             </SimpleBar>
         </div>
+        </>
     );
 };
 

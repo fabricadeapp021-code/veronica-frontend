@@ -16,7 +16,7 @@ const LeadAppHeader = ({ toggleSidebar, show }) => {
     const isExternal = user?.role === 'external';
 
     return (
-        <header className="contact-header">
+        <header className="contact-header" style={{ background: 'var(--bs-body-bg)', borderBottomColor: 'var(--bs-border-color)' }}>
             <div className="d-flex align-items-center">
                 <div className="contactapp-title link-dark">
                     <h1>Leads</h1>

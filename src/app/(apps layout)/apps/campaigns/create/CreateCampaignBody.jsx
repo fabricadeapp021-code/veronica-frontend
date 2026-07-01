@@ -1,165 +1,120 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Alert, Badge, Button, Card, Col, Form, Modal, Row, Table } from 'react-bootstrap';
+import { Alert, Badge, Button, Card, Col, Form, Row, Spinner } from 'react-bootstrap';
 import SimpleBar from 'simplebar-react';
-import { Plus, X } from 'react-feather';
-import { addLeadsToCampaign, createCampaign } from '@/lib/api/services/campaigns';
-import { listLeads } from '@/lib/api/services/leads';
+import { Upload } from 'react-feather';
+import { createCampaign } from '@/lib/api/services/campaigns';
+import { importLeads } from '@/lib/api/services/leads';
+import { apiRequest } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/AuthProvider';
 import { showCustomAlert } from '@/components/CustomAlert';
+
+const WEBHOOKS = {
+    voice: 'https://nexus-n8n.captain.nexusbr.ai/webhook/ce0328f9-175e-4512-826f-979e5d592841',
+    whatsapp: 'https://nexus-n8n.captain.nexusbr.ai/webhook/outbound-whatsapp-campanha',
+};
 
 const CreateCampaignBody = () => {
     const router = useRouter();
     const { status } = useAuth();
+    const fileInputRef = useRef(null);
+
+    const [agents, setAgents] = useState([]);
+    const [loadingAgents, setLoadingAgents] = useState(true);
 
     const [saving, setSaving] = useState(false);
+    const [importing, setImporting] = useState(false);
     const [error, setError] = useState(null);
-    const [campaignType, setCampaignType] = useState('whatsapp'); // 'whatsapp' ou 'voice'
+    const [campaignType, setCampaignType] = useState('whatsapp');
 
-    const [showAddLeadsModal, setShowAddLeadsModal] = useState(false);
-    const [availableLeads, setAvailableLeads] = useState([]);
-    const [selectedLeads, setSelectedLeads] = useState([]);
-    const [pendingLeadIds, setPendingLeadIds] = useState([]);
-    const [leadLabels, setLeadLabels] = useState({});
-    const [loadingLeads, setLoadingLeads] = useState(false);
+    const [selectedAgentId, setSelectedAgentId] = useState('');
+    const [csvFile, setCsvFile] = useState(null);
+    const [importedLeadIds, setImportedLeadIds] = useState([]);
+    const [importCount, setImportCount] = useState(null);
 
-    const [formData, setFormData] = useState({
-        name: '',
-        description: '',
-        prompt: '',
-    });
+    const [formData, setFormData] = useState({ name: '', description: '', prompt: '' });
 
-    // Webhooks predefinidos (agora usa Meta API via N8N)
-    const webhooks = {
-        voice: 'https://nexus-n8n.captain.nexusbr.ai/webhook/ce0328f9-175e-4512-826f-979e5d592841',
-        whatsapp: 'https://nexus-n8n.captain.nexusbr.ai/webhook/outbound-whatsapp-campanha',
-    };
+    useEffect(() => {
+        apiRequest('/agents')
+            .then((res) => {
+                const list = res?.data ?? res?.agents ?? res ?? [];
+                setAgents(Array.isArray(list) ? list : []);
+            })
+            .catch(() => setAgents([]))
+            .finally(() => setLoadingAgents(false));
+    }, []);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
-        setFormData((prev) => ({
-            ...prev,
-            [name]: value,
-        }));
+        setFormData((prev) => ({ ...prev, [name]: value }));
         setError(null);
     };
 
-    const loadAvailableLeads = async () => {
-        try {
-            setLoadingLeads(true);
-            const response = await listLeads({ maxSize: 100 });
-            if (response && response.success && response.data) {
-                setAvailableLeads(response.data);
-                const labelsFromResponse = response.data.reduce((acc, lead) => {
-                    acc[lead.id] = lead.name || lead.emailAddress || lead.phoneNumber || `Lead ${lead.id?.substring(0, 8) || ''}`;
-                    return acc;
-                }, {});
-                setLeadLabels((prev) => ({ ...prev, ...labelsFromResponse }));
-            } else {
-                setAvailableLeads([]);
-            }
-        } catch (err) {
-            console.error('Erro ao carregar leads:', err);
-            setAvailableLeads([]);
-        } finally {
-            setLoadingLeads(false);
+    const handleFileChange = async (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (!selectedAgentId) {
+            setError('Selecione um agente antes de importar o arquivo.');
+            return;
         }
-    };
+        setCsvFile(file);
+        setImportedLeadIds([]);
+        setImportCount(null);
+        setError(null);
 
-    const handleOpenAddLeadsModal = async () => {
-        setSelectedLeads(pendingLeadIds);
-        await loadAvailableLeads();
-        setShowAddLeadsModal(true);
-    };
-
-    const handleToggleLeadSelection = (leadId) => {
-        setSelectedLeads((prev) =>
-            prev.includes(leadId)
-                ? prev.filter((id) => id !== leadId)
-                : [...prev, leadId]
-        );
-    };
-
-    const handleConfirmLeadSelection = () => {
-        setPendingLeadIds(selectedLeads);
-        setShowAddLeadsModal(false);
-    };
-
-    const handleRemovePendingLead = (leadId) => {
-        setPendingLeadIds((prev) => prev.filter((id) => id !== leadId));
-    };
-
-    const getLeadLabel = (leadId, index) => {
-        return leadLabels[leadId] || `Lead ${index + 1} (${leadId.substring(0, 8)}...)`;
+        try {
+            setImporting(true);
+            const result = await importLeads(file, selectedAgentId);
+            const leadIds = result?.leadIds ?? result?.data?.leadIds ?? [];
+            const imported = result?.imported ?? result?.data?.imported ?? leadIds.length;
+            setImportedLeadIds(leadIds);
+            setImportCount(imported);
+        } catch (err) {
+            setError(err?.message || 'Erro ao importar arquivo. Verifique o formato e tente novamente.');
+            setCsvFile(null);
+        } finally {
+            setImporting(false);
+        }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setError(null);
 
-        // Validação básica
-        if (!formData.name.trim()) {
-            setError('O nome da campanha é obrigatório');
-            return;
-        }
-        if (!formData.prompt.trim()) {
-            setError('O prompt é obrigatório');
-            return;
-        }
-
-        if (status !== 'authenticated') {
-            setError('Você precisa estar autenticado para criar uma campanha');
-            return;
-        }
-
-        let createdCampaignId = null;
+        if (!selectedAgentId) { setError('Selecione um agente para executar a campanha.'); return; }
+        if (!formData.name.trim()) { setError('O nome da campanha é obrigatório.'); return; }
+        if (!formData.prompt.trim()) { setError('O prompt é obrigatório.'); return; }
+        if (importedLeadIds.length === 0) { setError('Importe um arquivo CSV ou XLSX com os leads antes de criar a campanha.'); return; }
+        if (status !== 'authenticated') { setError('Você precisa estar autenticado.'); return; }
 
         try {
             setSaving(true);
-            const selectedWebhook = webhooks[campaignType];
-            const campaignData = {
+            const response = await createCampaign({
                 name: formData.name.trim(),
                 description: formData.description.trim() || undefined,
                 prompt: formData.prompt.trim(),
+                agentId: selectedAgentId,
                 campaignType,
+                leadIds: importedLeadIds,
                 metadata: {
-                    webhookUrl: selectedWebhook,
-                    n8nWebhookUrl: selectedWebhook,
+                    webhookUrl: WEBHOOKS[campaignType],
+                    n8nWebhookUrl: WEBHOOKS[campaignType],
                 },
-            };
-
-            const response = await createCampaign(campaignData);
-
-            if (response?.success === false) {
-                throw new Error(response?.message || 'Erro ao criar campanha');
-            }
-
-            createdCampaignId = response?.data?.id || null;
-
-            if (createdCampaignId && pendingLeadIds.length > 0) {
-                const leadsResponse = await addLeadsToCampaign(createdCampaignId, pendingLeadIds);
-                if (!leadsResponse?.success) {
-                    throw new Error(leadsResponse?.message || 'Campanha criada, mas houve erro ao adicionar leads');
-                }
-            }
-
-            await showCustomAlert({
-                variant: 'success',
-                title: 'Sucesso',
-                text: 'Campanha criada com sucesso!',
             });
-            router.push('/apps/campaigns/list');
-        } catch (err) {
-            console.error('Erro ao criar campanha:', err);
-            if (createdCampaignId) {
-                setError('Campanha criada, mas não foi possível vincular os leads. Você será redirecionado para editar.');
-                setTimeout(() => {
-                    router.push(`/apps/campaigns/${createdCampaignId}`);
-                }, 1200);
+
+            if (response?.success === false) throw new Error(response?.message || 'Erro ao criar campanha');
+
+            const campaignId = response?.campaign?.id ?? response?.data?.id;
+            await showCustomAlert({ variant: 'success', title: 'Sucesso', text: 'Campanha criada! Redirecionando para monitoramento...' });
+
+            if (campaignId) {
+                router.push(`/apps/campaigns/${campaignId}/monitor`);
             } else {
-                setError(err?.message || err?.body?.message || 'Erro ao criar campanha. Tente novamente.');
+                router.push('/apps/campaigns/list');
             }
+        } catch (err) {
+            setError(err?.message || 'Erro ao criar campanha. Tente novamente.');
         } finally {
             setSaving(false);
         }
@@ -174,41 +129,36 @@ const CreateCampaignBody = () => {
                             <h5>Nova Campanha</h5>
                         </Card.Header>
                         <Card.Body>
-                            {error && (
-                                <Alert variant="danger" className="mb-3">
-                                    {error}
-                                </Alert>
-                            )}
+                            {error && <Alert variant="danger" className="mb-3">{error}</Alert>}
                             <Form onSubmit={handleSubmit}>
                                 <Row>
                                     <Col md={12}>
                                         <Form.Group className="mb-3">
-                                            <Form.Label>Nome da Campanha *</Form.Label>
-                                            <Form.Control
-                                                type="text"
-                                                name="name"
-                                                value={formData.name}
-                                                onChange={handleChange}
-                                                placeholder="Digite o nome da campanha"
-                                                required
-                                                disabled={saving}
-                                            />
+                                            <Form.Label>Agente Executor *</Form.Label>
+                                            {loadingAgents ? (
+                                                <div><Spinner size="sm" className="me-2" />Carregando agentes...</div>
+                                            ) : (
+                                                <Form.Select
+                                                    value={selectedAgentId}
+                                                    onChange={(e) => { setSelectedAgentId(e.target.value); setImportedLeadIds([]); setImportCount(null); setCsvFile(null); }}
+                                                    disabled={saving}
+                                                    required
+                                                >
+                                                    <option value="">Selecione o agente que vai atender os leads...</option>
+                                                    {agents.map((agent) => (
+                                                        <option key={agent.id} value={agent.id}>{agent.name || agent.agentName || agent.id}</option>
+                                                    ))}
+                                                </Form.Select>
+                                            )}
+                                            <Form.Text className="text-muted">O agente selecionado irá abordar e qualificar os leads após o disparo.</Form.Text>
                                         </Form.Group>
                                     </Col>
                                 </Row>
                                 <Row>
                                     <Col md={12}>
                                         <Form.Group className="mb-3">
-                                            <Form.Label>Descrição</Form.Label>
-                                            <Form.Control
-                                                as="textarea"
-                                                rows={3}
-                                                name="description"
-                                                value={formData.description}
-                                                onChange={handleChange}
-                                                placeholder="Descrição da campanha"
-                                                disabled={saving}
-                                            />
+                                            <Form.Label>Nome da Campanha *</Form.Label>
+                                            <Form.Control type="text" name="name" value={formData.name} onChange={handleChange} placeholder="Ex: Prospecção Imóveis Janeiro 2025" required disabled={saving} />
                                         </Form.Group>
                                     </Col>
                                 </Row>
@@ -216,99 +166,65 @@ const CreateCampaignBody = () => {
                                     <Col md={12}>
                                         <Form.Group className="mb-3">
                                             <Form.Label>Tipo de Campanha *</Form.Label>
-                                            <Form.Select
-                                                value={campaignType}
-                                                onChange={(e) => setCampaignType(e.target.value)}
-                                                disabled={saving}
-                                            >
-                                                <option value="whatsapp">📱 Campanha de WhatsApp</option>
-                                                <option value="voice">📞 Campanha de Voz</option>
+                                            <Form.Select value={campaignType} onChange={(e) => setCampaignType(e.target.value)} disabled={saving}>
+                                                <option value="whatsapp">📱 WhatsApp</option>
+                                                <option value="voice">📞 Voz (Ligação)</option>
                                             </Form.Select>
-                                            {/* <Form.Text className="text-muted">
-                                                {campaignType === 'whatsapp'
-                                                    ? '📱 Webhook: https://nexus-n8n.captain.nexusbr.ai/webhook/outbound-whatsapp-campanha'
-                                                    : '📞 Webhook: https://nexus-n8n.captain.nexusbr.ai/webhook/ce0328f9-175e-4512-826f-979e5d592841'
-                                                }
-                                            </Form.Text> */}
                                         </Form.Group>
                                     </Col>
                                 </Row>
                                 <Row>
                                     <Col md={12}>
                                         <Form.Group className="mb-3">
-                                            <Form.Label>Prompt *</Form.Label>
-                                            <Form.Control
-                                                as="textarea"
-                                                rows={6}
-                                                name="prompt"
-                                                value={formData.prompt}
-                                                onChange={handleChange}
-                                                placeholder="Prompt/mensagem a ser enviada"
-                                                required
-                                                disabled={saving}
-                                            />
-                                            <Form.Text className="text-muted">
-                                                Use variáveis como {`{{name}}`} para personalizar o prompt
-                                            </Form.Text>
+                                            <Form.Label>Importar Lista de Leads (CSV ou XLSX) *</Form.Label>
+                                            <div
+                                                className="border rounded p-3 text-center"
+                                                style={{ cursor: 'pointer', background: '#f8f9fa' }}
+                                                onClick={() => selectedAgentId && fileInputRef.current?.click()}
+                                            >
+                                                {importing ? (
+                                                    <><Spinner size="sm" className="me-2" />Importando leads...</>
+                                                ) : importCount !== null ? (
+                                                    <div>
+                                                        <Badge bg="success" className="fs-6 p-2">{importCount} leads importados</Badge>
+                                                        <br /><small className="text-muted mt-1 d-block">{csvFile?.name} — clique para trocar o arquivo</small>
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-muted">
+                                                        <Upload size={24} className="mb-2" />
+                                                        <p className="mb-0">{selectedAgentId ? 'Clique para selecionar CSV ou XLSX' : 'Selecione um agente primeiro'}</p>
+                                                        <small>Colunas: name, phone (obrigatórios) + email, company, stage, score (opcionais)</small>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <input ref={fileInputRef} type="file" accept=".csv,.xlsx,.xls" className="d-none" onChange={handleFileChange} disabled={saving || importing || !selectedAgentId} />
                                         </Form.Group>
                                     </Col>
                                 </Row>
                                 <Row>
                                     <Col md={12}>
-                                        <Card className="mb-3">
-                                            <Card.Header className="d-flex justify-content-between align-items-center">
-                                                <div>
-                                                    <strong>Leads da Campanha</strong>
-                                                    <Badge bg="primary" className="ms-2">
-                                                        {pendingLeadIds.length}
-                                                    </Badge>
-                                                </div>
-                                                <Button
-                                                    variant="primary"
-                                                    size="sm"
-                                                    onClick={handleOpenAddLeadsModal}
-                                                    disabled={saving}
-                                                >
-                                                    <Plus size={16} className="me-1" />
-                                                    Adicionar Leads
-                                                </Button>
-                                            </Card.Header>
-                                            <Card.Body>
-                                                {pendingLeadIds.length > 0 ? (
-                                                    <div className="d-flex flex-wrap gap-2">
-                                                        {pendingLeadIds.map((leadId, index) => (
-                                                            <Badge key={leadId} bg="secondary" className="p-2 d-flex align-items-center gap-2">
-                                                                {getLeadLabel(leadId, index)}
-                                                                <button
-                                                                    type="button"
-                                                                    className="btn btn-link text-white p-0 d-flex align-items-center"
-                                                                    onClick={() => handleRemovePendingLead(leadId)}
-                                                                    aria-label="Remover lead"
-                                                                    disabled={saving}
-                                                                >
-                                                                    <X size={12} />
-                                                                </button>
-                                                            </Badge>
-                                                        ))}
-                                                    </div>
-                                                ) : (
-                                                    <p className="text-muted mb-0">
-                                                        Nenhum lead selecionado. Você pode selecionar agora e salvar junto com a campanha.
-                                                    </p>
-                                                )}
-                                            </Card.Body>
-                                        </Card>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label>Prompt da Mensagem *</Form.Label>
+                                            <Form.Control as="textarea" rows={6} name="prompt" value={formData.prompt} onChange={handleChange} placeholder="Mensagem inicial que o agente enviará aos leads..." required disabled={saving} />
+                                            <Form.Text className="text-muted">Use {`{{name}}`} para personalizar com o nome do lead.</Form.Text>
+                                        </Form.Group>
+                                    </Col>
+                                </Row>
+                                <Row>
+                                    <Col md={12}>
+                                        <Form.Group className="mb-3">
+                                            <Form.Label>Descrição</Form.Label>
+                                            <Form.Control as="textarea" rows={2} name="description" value={formData.description} onChange={handleChange} placeholder="Descrição interna da campanha (opcional)" disabled={saving} />
+                                        </Form.Group>
                                     </Col>
                                 </Row>
                                 <Row>
                                     <Col md={12}>
                                         <div className="d-flex gap-2">
-                                            <Button variant="primary" type="submit" disabled={saving}>
+                                            <Button variant="primary" type="submit" disabled={saving || importing || importedLeadIds.length === 0}>
                                                 {saving ? 'Criando...' : 'Criar Campanha'}
                                             </Button>
-                                            <Button variant="light" onClick={() => router.push('/apps/campaigns/list')} disabled={saving}>
-                                                Cancelar
-                                            </Button>
+                                            <Button variant="light" onClick={() => router.push('/apps/campaigns/list')} disabled={saving}>Cancelar</Button>
                                         </div>
                                     </Col>
                                 </Row>
@@ -317,94 +233,6 @@ const CreateCampaignBody = () => {
                     </Card>
                 </div>
             </SimpleBar>
-
-            <Modal show={showAddLeadsModal} onHide={() => setShowAddLeadsModal(false)} size="lg" centered>
-                <Modal.Header>
-                    <Modal.Title>Selecionar Leads da Campanha</Modal.Title>
-                    <Button variant="flush-dark" className="btn-icon btn-rounded flush-soft-hover" onClick={() => setShowAddLeadsModal(false)}>
-                        <span className="icon">
-                            <span className="feather-icon">
-                                <X />
-                            </span>
-                        </span>
-                    </Button>
-                </Modal.Header>
-                <Modal.Body>
-                    {loadingLeads ? (
-                        <div className="text-center py-4">
-                            <p>Carregando leads disponíveis...</p>
-                        </div>
-                    ) : availableLeads.length === 0 ? (
-                        <Alert variant="info">
-                            Não há leads cadastrados para selecionar.
-                        </Alert>
-                    ) : (
-                        <>
-                            <p className="mb-3">Selecione os leads que deseja vincular nesta campanha:</p>
-                            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
-                                <Table hover>
-                                    <thead>
-                                        <tr>
-                                            <th style={{ width: '50px' }}>
-                                                <Form.Check
-                                                    checked={selectedLeads.length === availableLeads.length && availableLeads.length > 0}
-                                                    onChange={(e) => {
-                                                        if (e.target.checked) {
-                                                            setSelectedLeads(availableLeads.map((lead) => lead.id));
-                                                        } else {
-                                                            setSelectedLeads([]);
-                                                        }
-                                                    }}
-                                                />
-                                            </th>
-                                            <th>Nome</th>
-                                            <th>Email</th>
-                                            <th>Telefone</th>
-                                            <th>Status</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {availableLeads.map((lead) => (
-                                            <tr
-                                                key={lead.id}
-                                                style={{ cursor: 'pointer' }}
-                                                onClick={() => handleToggleLeadSelection(lead.id)}
-                                            >
-                                                <td>
-                                                    <Form.Check
-                                                        checked={selectedLeads.includes(lead.id)}
-                                                        onChange={() => handleToggleLeadSelection(lead.id)}
-                                                        onClick={(e) => e.stopPropagation()}
-                                                    />
-                                                </td>
-                                                <td>{lead.name || '-'}</td>
-                                                <td>{lead.emailAddress || '-'}</td>
-                                                <td>{lead.phoneNumber || '-'}</td>
-                                                <td>
-                                                    <Badge bg="secondary">{lead.status || 'New'}</Badge>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </Table>
-                            </div>
-                            {selectedLeads.length > 0 && (
-                                <Alert variant="info" className="mt-3 mb-0">
-                                    {selectedLeads.length} lead(s) selecionado(s)
-                                </Alert>
-                            )}
-                        </>
-                    )}
-                </Modal.Body>
-                <Modal.Footer>
-                    <Button variant="light" onClick={() => setShowAddLeadsModal(false)} disabled={saving}>
-                        Cancelar
-                    </Button>
-                    <Button variant="primary" onClick={handleConfirmLeadSelection} disabled={saving}>
-                        Confirmar Seleção
-                    </Button>
-                </Modal.Footer>
-            </Modal>
         </div>
     );
 };

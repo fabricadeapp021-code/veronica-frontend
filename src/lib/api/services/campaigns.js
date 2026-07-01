@@ -3,9 +3,10 @@ import { apiRequest } from '@/lib/api/client';
 /**
  * Lista todas as campanhas
  */
-export async function listCampaigns({ status, offset, limit } = {}) {
+export async function listCampaigns({ status, agentId, offset, limit } = {}) {
   const params = new URLSearchParams();
   if (status) params.append('status', status);
+  if (agentId) params.append('agentId', agentId);
   if (offset) params.append('offset', offset);
   if (limit) params.append('limit', limit);
   

@@ -57,9 +57,9 @@ const CreateLeadBody = () => {
         tags: [],
     });
     const sectionCardStyle = {
-        border: '1px solid #d8dee9',
+        border: '1px solid var(--bs-border-color)',
         borderRadius: '12px',
-        background: '#fff',
+        background: 'var(--bs-body-bg)',
     };
     const submitBtnStyle = {
         backgroundColor: '#16a34a',
@@ -433,6 +433,26 @@ const CreateLeadBody = () => {
                 }
                 .lead-create-page .card {
                     margin-bottom: 0 !important;
+                }
+                .lead-create-page .form-control,
+                .lead-create-page .form-select {
+                    background-color: var(--bs-tertiary-bg, var(--bs-body-bg)) !important;
+                    border-color: var(--bs-border-color) !important;
+                    color: var(--bs-body-color) !important;
+                }
+                .lead-create-page .form-control::placeholder {
+                    color: var(--bs-secondary-color) !important;
+                }
+                .lead-create-page .form-control:focus,
+                .lead-create-page .form-select:focus {
+                    background-color: var(--bs-tertiary-bg, var(--bs-body-bg)) !important;
+                    border-color: var(--bs-primary) !important;
+                    color: var(--bs-body-color) !important;
+                    box-shadow: 0 0 0 0.2rem rgba(var(--bs-primary-rgb), 0.15) !important;
+                }
+                .lead-create-page .form-select option {
+                    background-color: var(--bs-body-bg);
+                    color: var(--bs-body-color);
                 }
             `}</style>
         <div className="contact-body contact-detail-body lead-create-page">

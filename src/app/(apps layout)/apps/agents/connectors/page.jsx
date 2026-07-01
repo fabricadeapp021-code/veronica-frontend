@@ -1281,6 +1281,7 @@ const AgentConnectorsPage = () => {
         } else {
           await apiRequest(`/agents/${selectedAgentId}/integrations/lead-connector/enable`, { method: 'POST' });
         }
+        queryClient.invalidateQueries({ queryKey: ['integrations'] });
         queryClient.invalidateQueries({ queryKey: ['agents', selectedAgentId, 'integrations'] });
         queryClient.invalidateQueries({ queryKey: ['agents'] });
         if (!leadFile) {

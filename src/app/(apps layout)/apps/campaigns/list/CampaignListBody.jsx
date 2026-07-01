@@ -180,8 +180,15 @@ const CampaignListBody = () => {
             }
 
             const response = await listCampaigns();
-            if (response && response.success && Array.isArray(response.data)) {
-                const formattedData = response.data.map((campaign) => {
+            const rawList = Array.isArray(response?.list)
+                ? response.list
+                : Array.isArray(response?.data)
+                ? response.data
+                : Array.isArray(response)
+                ? response
+                : [];
+            if (rawList.length >= 0) {
+                const formattedData = rawList.map((campaign) => {
                     const createdAtDate = campaign?.createdAt ? new Date(campaign.createdAt) : null;
                     const createdAt = createdAtDate
                         ? createdAtDate.toLocaleDateString('pt-BR', {
@@ -234,8 +241,6 @@ const CampaignListBody = () => {
                 });
 
                 setCampaigns(formattedData);
-            } else {
-                setCampaigns([]);
             }
         } catch (error) {
             console.error('Erro ao carregar campanhas:', error);
@@ -370,7 +375,7 @@ const CampaignListBody = () => {
         setShowPreviewModal(true);
         try {
             const res = await getDispatchPreview(campaignId);
-            if (res?.success) setPreviewData(res.data);
+            if (res && typeof res.total === 'number') setPreviewData(res);
         } catch (e) {
             console.error('Erro ao buscar preview:', e);
         } finally {
@@ -386,13 +391,9 @@ const CampaignListBody = () => {
         if (!campaignId) return;
         try {
             setProcessingId(campaignId);
-            const response = await startCampaign(campaignId);
-            if (response && response.success) {
-                await loadCampaigns();
-                await showCustomAlert({ variant: 'success', title: 'Sucesso', text: 'Campanha iniciada com sucesso!' });
-            } else {
-                await showCustomAlert({ variant: 'danger', title: 'Erro', text: response?.message || 'Erro ao iniciar campanha' });
-            }
+            await startCampaign(campaignId);
+            await loadCampaigns();
+            await showCustomAlert({ variant: 'success', title: 'Sucesso', text: 'Campanha iniciada com sucesso!' });
         } catch (error) {
             console.error('Erro ao iniciar campanha:', error);
             let text = error?.message || 'Erro ao iniciar campanha.';
@@ -422,14 +423,9 @@ const CampaignListBody = () => {
 
         try {
             setProcessingId(campaignId);
-            const response = await pauseCampaign(campaignId);
-
-            if (response && response.success) {
-                await loadCampaigns();
-                await showCustomAlert({ variant: 'success', title: 'Sucesso', text: 'Campanha pausada com sucesso!' });
-            } else {
-                await showCustomAlert({ variant: 'danger', title: 'Erro', text: response?.message || 'Erro ao pausar campanha' });
-            }
+            await pauseCampaign(campaignId);
+            await loadCampaigns();
+            await showCustomAlert({ variant: 'success', title: 'Sucesso', text: 'Campanha pausada com sucesso!' });
         } catch (error) {
             console.error('Erro ao pausar campanha:', error);
             await showCustomAlert({ variant: 'danger', title: 'Erro', text: error?.message || 'Erro ao pausar campanha.' });
@@ -455,14 +451,9 @@ const CampaignListBody = () => {
 
         try {
             setProcessingId(campaignId);
-            const response = await resumeCampaign(campaignId);
-
-            if (response && response.success) {
-                await loadCampaigns();
-                await showCustomAlert({ variant: 'success', title: 'Sucesso', text: 'Campanha retomada com sucesso!' });
-            } else {
-                await showCustomAlert({ variant: 'danger', title: 'Erro', text: response?.message || 'Erro ao retomar campanha' });
-            }
+            await resumeCampaign(campaignId);
+            await loadCampaigns();
+            await showCustomAlert({ variant: 'success', title: 'Sucesso', text: 'Campanha retomada com sucesso!' });
         } catch (error) {
             console.error('Erro ao retomar campanha:', error);
             await showCustomAlert({ variant: 'danger', title: 'Erro', text: error?.message || 'Erro ao retomar campanha.' });
@@ -488,14 +479,9 @@ const CampaignListBody = () => {
 
         try {
             setProcessingId(campaignId);
-            const response = await stopCampaign(campaignId);
-
-            if (response && response.success) {
-                await loadCampaigns();
-                await showCustomAlert({ variant: 'success', title: 'Sucesso', text: 'Campanha parada com sucesso!' });
-            } else {
-                await showCustomAlert({ variant: 'danger', title: 'Erro', text: response?.message || 'Erro ao parar campanha' });
-            }
+            await stopCampaign(campaignId);
+            await loadCampaigns();
+            await showCustomAlert({ variant: 'success', title: 'Sucesso', text: 'Campanha parada com sucesso!' });
         } catch (error) {
             console.error('Erro ao parar campanha:', error);
             await showCustomAlert({ variant: 'danger', title: 'Erro', text: error?.message || 'Erro ao parar campanha.' });
@@ -1107,6 +1093,16 @@ const CampaignListBody = () => {
                                                         </td>
                                                         <td style={{ whiteSpace: 'nowrap' }}>
                                                             <div className="campaign-actions">
+                                                                <Button
+                                                                    size="sm"
+                                                                    variant="outline-primary"
+                                                                    onClick={() => router.push(`/apps/campaigns/${campaign.id}/monitor`)}
+                                                                    disabled={isProcessing}
+                                                                    className="campaign-action-btn"
+                                                                    title="Monitorar disparo"
+                                                                >
+                                                                    📊
+                                                                </Button>
                                                                 <Button
                                                                     size="sm"
                                                                     variant="outline-secondary"

@@ -79,7 +79,6 @@ const LeadListBody = () => {
 
     const [searchTerm, setSearchTerm] = useState('');
     const [statusFilter, setStatusFilter] = useState('');
-    const [sourceFilter, setSourceFilter] = useState('');
     const [dateFromFilter, setDateFromFilter] = useState('');
     const [dateToFilter, setDateToFilter] = useState('');
 
@@ -101,46 +100,43 @@ const LeadListBody = () => {
                 setLoading(true);
             }
 
-            let response = await listLeads({ maxSize: 1000 });
-            if (!response?.success) {
-                response = await listLeads();
-            }
+            const response = await listLeads({ limit: 1000 });
 
-            if (response?.success && Array.isArray(response.data)) {
-                const formattedData = response.data.map((lead) => {
-                    const createdAtDate = lead?.createdAt ? new Date(lead.createdAt) : null;
-                    const createdAt = createdAtDate
-                        ? createdAtDate.toLocaleDateString('pt-BR', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                        })
-                        : '-';
+            const rawLeads = Array.isArray(response?.leads)
+                ? response.leads
+                : Array.isArray(response)
+                ? response
+                : [];
 
-                    const leadTags = Array.isArray(lead?.tags)
-                        ? lead.tags.map((t) => String(t).trim()).filter(Boolean)
-                        : [];
+            const formattedData = rawLeads.map((lead) => {
+                const createdAtDate = lead?.createdAt ? new Date(lead.createdAt) : null;
+                const createdAt = createdAtDate
+                    ? createdAtDate.toLocaleDateString('pt-BR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                    })
+                    : '-';
 
-                    return {
-                        id: lead.id,
-                        name: lead.name || '-',
-                        email: lead.emailAddress || '-',
-                        phone: lead.phoneNumber || '-',
-                        source: lead.source || '-',
-                        statusRaw: lead.status || 'New',
-                        statusBusiness: mapRawStatus(lead.status),
-                        createdAt,
-                        createdAtDate,
-                        tags: leadTags,
-                    };
-                });
+                const leadTags = Array.isArray(lead?.tags)
+                    ? lead.tags.map((t) => String(t).trim()).filter(Boolean)
+                    : [];
 
-                setLeads(formattedData);
-            } else {
-                setLeads([]);
-            }
+                return {
+                    id: lead._id ?? lead.id,
+                    name: lead.name || '-',
+                    email: lead.email || '-',
+                    phone: lead.phone || '-',
+                    statusBusiness: mapRawStatus(lead.stage),
+                    createdAt,
+                    createdAtDate,
+                    tags: leadTags,
+                };
+            });
+
+            setLeads(formattedData);
         } catch (error) {
             console.error('Erro ao carregar leads:', error);
             setLeads([]);
@@ -234,14 +230,6 @@ const LeadListBody = () => {
         }
     }, []);
 
-    const uniqueSources = useMemo(() => {
-        const sources = new Set();
-        leads.forEach((lead) => {
-            if (lead.source && lead.source !== '-') sources.add(lead.source);
-        });
-        return Array.from(sources).sort();
-    }, [leads]);
-
     const filteredLeads = useMemo(() => {
         return leads.filter((lead) => {
             const search = searchTerm.trim().toLowerCase();
@@ -252,7 +240,6 @@ const LeadListBody = () => {
                 String(lead?.phone || '').toLowerCase().includes(search);
 
             const matchesStatus = !statusFilter || lead.statusBusiness === statusFilter;
-            const matchesSource = !sourceFilter || lead.source === sourceFilter;
 
             const createdAtDate = lead?.createdAtDate instanceof Date ? lead.createdAtDate : null;
             const fromDate = dateFromFilter ? new Date(`${dateFromFilter}T00:00:00`) : null;
@@ -263,9 +250,9 @@ const LeadListBody = () => {
             const tags = Array.isArray(lead.tags) ? lead.tags : [];
             const matchesTags = activeTags.length === 0 || activeTags.every((tag) => tags.includes(tag));
 
-            return matchesSearch && matchesStatus && matchesSource && matchesDateFrom && matchesDateTo && matchesTags;
+            return matchesSearch && matchesStatus && matchesDateFrom && matchesDateTo && matchesTags;
         });
-    }, [leads, searchTerm, statusFilter, sourceFilter, dateFromFilter, dateToFilter, activeTags]);
+    }, [leads, searchTerm, statusFilter, dateFromFilter, dateToFilter, activeTags]);
 
     return (
         <>
@@ -344,16 +331,6 @@ const LeadListBody = () => {
                                                     ))}
                                                 </Dropdown.Menu>
                                             </Dropdown>
-                                        </div>
-
-                                        <div style={{ width: 160 }}>
-                                            <Form.Label className="mb-1">Origem</Form.Label>
-                                            <Form.Select size="sm" value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)}>
-                                                <option value="">Todas as Origens</option>
-                                                {uniqueSources.map((source) => (
-                                                    <option key={source} value={source}>{source}</option>
-                                                ))}
-                                            </Form.Select>
                                         </div>
 
                                         <div style={{ width: 150 }}>
