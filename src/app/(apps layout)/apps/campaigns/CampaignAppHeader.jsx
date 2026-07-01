@@ -12,7 +12,7 @@ const CampaignAppHeader = ({ toggleSidebar, show }) => {
     const campaignListRoute = pathName.match("/apps/campaigns/list");
 
     return (
-        <header className="contact-header">
+        <header className="contact-header" style={{ background: 'var(--bs-body-bg)', borderBottomColor: 'var(--bs-border-color)' }}>
             <div className="d-flex align-items-center">
                 <div className="contactapp-title link-dark">
                     <h1>Campanhas</h1>

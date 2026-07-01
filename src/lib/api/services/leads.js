@@ -64,3 +64,13 @@ export async function convertLead(id, opportunityData) {
   });
 }
 
+export async function importLeads(file, agentId) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('agentId', agentId);
+  return await apiRequest('/crm/leads/import', {
+    method: 'POST',
+    body: formData,
+  });
+}
+

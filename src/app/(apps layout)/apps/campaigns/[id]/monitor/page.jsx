@@ -1,32 +1,29 @@
 'use client';
 import { useState } from 'react';
 import classNames from 'classnames';
-import CampaignAppSidebar from '../CampaignAppSidebar';
-import CampaignAppHeader from '../CampaignAppHeader';
-import CampaignListBody from './CampaignListBody';
+import CampaignAppSidebar from '../../CampaignAppSidebar';
+import CampaignAppHeader from '../../CampaignAppHeader';
+import CampaignMonitorBody from './CampaignMonitorBody';
 
-const CampaignList = () => {
+const CampaignMonitorPage = () => {
     const [showSidebar, setShowSidebar] = useState(() => {
         if (typeof window === 'undefined') return false;
         return window.matchMedia('(max-width: 1740px)').matches;
     });
+
     return (
         <div className="hk-pg-body py-0">
-            <div className={classNames("contactapp-wrap", { "contactapp-sidebar-toggle": showSidebar })} >
+            <div className={classNames('contactapp-wrap', { 'contactapp-sidebar-toggle': showSidebar })}>
                 <CampaignAppSidebar />
                 <div className="contactapp-content" style={{ background: 'var(--bs-body-bg)' }}>
                     <div className="contactapp-detail-wrap" style={{ background: 'var(--bs-body-bg)' }}>
-                        <CampaignAppHeader
-                            toggleSidebar={() => setShowSidebar(!showSidebar)}
-                            show={showSidebar}
-                        />
-                        <CampaignListBody />
+                        <CampaignAppHeader toggleSidebar={() => setShowSidebar(!showSidebar)} show={showSidebar} />
+                        <CampaignMonitorBody />
                     </div>
                 </div>
             </div>
         </div>
-    )
-}
+    );
+};
 
-export default CampaignList
-
+export default CampaignMonitorPage;

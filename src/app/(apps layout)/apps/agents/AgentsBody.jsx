@@ -358,22 +358,29 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
         const data = await apiRequest(`/agents/${agent._id}/sessions/${encodeURIComponent(session.sessionKey)}`);
         if (cancelled || !Array.isArray(data?.messages) || data.messages.length === 0) return;
 
-        const mapped = data.messages.map((m) => {
-          let content = m.content;
-          if (Array.isArray(content)) {
-            const textBlock = content.find((b) => b.type === 'text');
-            content = textBlock?.text ?? '';
-          }
-          content = content ?? '';
-          // OpenClaw injeta contexto de remetente no início das mensagens user:
-          // "Sender (untrusted metadata): ```json {...} ``` [timestamp] mensagem real"
-          // Strip tudo até o final do bloco de timestamp [...]
-          if (m.role === 'user' && content.startsWith('Sender (untrusted metadata):')) {
-            const match = content.match(/\[[^\]]+\]\s*([\s\S]*)$/);
-            if (match) content = match[1].trimStart();
-          }
-          return { role: m.role, content, ts: m.timestamp ? new Date(m.timestamp).getTime() : Date.now() };
-        });
+        const mapped = data.messages
+          .filter((m) => m.role === 'user' || m.role === 'assistant')
+          .map((m) => {
+            let content = m.content;
+            if (Array.isArray(content)) {
+              // Ignora mensagens compostas apenas por blocos de ferramenta (tool_use / tool_result)
+              const onlyToolBlocks = content.every((b) => b.type === 'tool_use' || b.type === 'tool_result');
+              if (onlyToolBlocks) return null;
+              const textBlock = content.find((b) => b.type === 'text');
+              content = textBlock?.text ?? '';
+            }
+            content = content ?? '';
+            // OpenClaw injeta contexto de remetente no início das mensagens user:
+            // "Sender (untrusted metadata): ```json {...} ``` [timestamp] mensagem real"
+            // Strip tudo até o final do bloco de timestamp [...]
+            if (m.role === 'user' && content.startsWith('Sender (untrusted metadata):')) {
+              const match = content.match(/\[[^\]]+\]\s*([\s\S]*)$/);
+              if (match) content = match[1].trimStart();
+            }
+            if (!content) return null;
+            return { role: m.role, content, ts: m.timestamp ? new Date(m.timestamp).getTime() : Date.now() };
+          })
+          .filter(Boolean);
 
         setSessions(prev => prev.map(s => s.id === activeSessionId && s.messages.length === 0
           ? { ...s, messages: mapped }
@@ -517,6 +524,7 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
       const reader = streamRes.body.getReader();
       const decoder = new TextDecoder();
       let buffer = '';
+      let receivedComplete = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -531,6 +539,7 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
           try {
             const event = JSON.parse(line.slice(6));
             if (event.type === 'complete') {
+              receivedComplete = true;
               setSessions(prev => prev.map(s => {
                 if (s.id !== sid) return s;
                 const msgs = [...s.messages];
@@ -538,6 +547,7 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
                 return { ...s, sessionKey: event.sessionKey || s.sessionKey, messages: msgs };
               }));
             } else if (event.type === 'error') {
+              receivedComplete = true;
               setSessions(prev => prev.map(s => {
                 if (s.id !== sid) return s;
                 const msgs = [...s.messages];
@@ -554,6 +564,25 @@ const AgentPlaygroundPanel = ({ agent, onClose }) => {
             /* linha SSE inválida — ignora */
           }
         }
+      }
+
+      // Stream fechou sem evento complete — conexão cortada pelo proxy antes da resposta.
+      // Substitui o loading spinner por erro para desbloquear o chat.
+      if (!receivedComplete) {
+        setSessions(prev => prev.map(s => {
+          if (s.id !== sid) return s;
+          const msgs = [...s.messages];
+          const last = msgs[msgs.length - 1];
+          if (last?.loading) {
+            msgs[msgs.length - 1] = {
+              role: 'assistant',
+              content: 'Sem resposta do agente. Verifique sua conexão e tente novamente.',
+              ts: Date.now(),
+              error: true,
+            };
+          }
+          return { ...s, messages: msgs };
+        }));
       }
     } catch (err) {
       setSessions(prev => prev.map(s => {
